@@ -8,20 +8,30 @@ This file records what *is* (current reality). The binding design canon is `docs
 
 ## Systems
 
-- **Build/dev scaffold** — Vite vanilla (JavaScript) static site. Default template content only; no application features yet.
+- **Build/dev scaffold** — Vite + TypeScript static site, building to `dist/`.
+- **Front-end shell** — static roast UI (`src/main.ts`, `src/ui.ts`): paste field
+  with live character count, three-level intensity control (default `spicy`),
+  empty roast output area, profile-source helper lines, self-directed framing,
+  and the privacy notice. Public build config in `src/config.ts`. No backend
+  call yet (wired in `003_worker_proxy`).
 
 ## Key decisions
 
-- Stack: Vite vanilla JS, building to `dist/`.
-- Verify command `npm run check` runs `vite build`.
+- Stack: Vite + TypeScript, building to `dist/`.
+- Verify command `npm run check` runs `tsc --noEmit && vite build`.
 - Site served under base path `/roast-a-researcher/` (GitHub Pages).
+- Front-end UI copy and public settings (`WORKER_URL`, `DEFAULT_MODEL`,
+  `MAX_INPUT_CHARS`, `DEFAULT_INTENSITY`) live in `src/config.ts`; no secret ever
+  ships to the browser.
 
 ## In progress / next
 
-_Nothing in progress yet._
+- `003_worker_proxy` drafted and approved; not run. Needs an OpenRouter account +
+  key and a Cloudflare account before it can deploy and verify end to end.
 
 ## Prompts run
 
 _A running list of completed prompts, newest last. Add the prompt filename as each is run._
 
 - 001_setup.md
+- 002_frontend_shell.md
