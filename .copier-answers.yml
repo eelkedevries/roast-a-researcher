@@ -1,0 +1,18 @@
+# This file is maintained by Copier; do not edit by hand.
+# It records the answers used to generate this project and enables `copier update`.
+_commit: v0.1.0
+_src_path: gh:eelkedevries/eek-a-template
+description: Comedic roast generator for academic profiles
+language_locale: British English in code, comments, and user-facing text.
+license: none
+project_name: roast-a-researcher
+project_title: Roast a Researcher
+stack: node
+stack_kind: node
+static_site: true
+testing_policy: no tests unless a prompt asks for them.
+verify_command: '`npm run check` (after the scaffold exists).'
+visibility: public
+workflow_policy: commit and push directly to `main`; no feature branches or pull requests
+    unless explicitly requested.
+

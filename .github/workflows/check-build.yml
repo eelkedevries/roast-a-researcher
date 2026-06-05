@@ -1,0 +1,54 @@
+# Node/static-site template workflow.
+# Suitable for Vite/Svelte/React/browser-game projects.
+# Adapt or replace for Python, R, MATLAB, PsychoPy, FastAPI-only, or other project types.
+#
+# This is the automated safety net for the commit-to-`main` workflow: it runs on
+# every push (and PRs to main), so broken builds or leaked secrets are caught
+# mechanically even if local pre-commit hooks were never installed.
+name: Check build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies (reproducible)
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify (project's verify command, if defined)
+        run: npm run check --if-present
+
+      - name: Run public-build safety check
+        run: bash scripts/check-public-build.sh dist
+
+      - name: Validate prompt numbering
+        run: bash scripts/validate-prompts.sh
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Optional: validate structured content against the spec's schema.
+      # If the project defines data schemas (see primary_authoritative/specification.md)
+      # and ships structured content, add a validation step here, e.g.:
+      #   - run: node scripts/validate-content.mjs
+      #
+      # Optional: smoke test that the built site loads without console errors,
+      # e.g. a Playwright check against the `dist/` preview.

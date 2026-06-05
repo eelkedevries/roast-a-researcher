@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# environment and secrets
+.env
+.env.*
+!.env.example
+
+# build outputs
+dist/
+build/
+coverage/
+
+# temporary internal material
+docs-dev/tmp/
+docs-dev/private/
+docs-dev/reference/proprietary/
+docs-dev/reference/customer/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# local agent settings (machine-specific)
+.claude/settings.local.json
