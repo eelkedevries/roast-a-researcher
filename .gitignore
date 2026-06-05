@@ -8,11 +8,15 @@ __pycache__/
 .env
 .env.*
 !.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
 
 # build outputs
 dist/
 build/
 coverage/
+.wrangler/
 
 # temporary internal material
 docs-dev/tmp/
@@ -28,3 +32,5 @@ docs-dev/reference/customer/
 
 # local agent settings (machine-specific)
 .claude/settings.local.json
+.claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock

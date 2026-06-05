@@ -1,7 +1,7 @@
-import { config, copy, intensityLevels } from './config'
+import { config, copy, intensityLevels, type Intensity } from './config'
 
-// Builds the static shell. No network call is made here; wiring the roast
-// request to the Worker is the next prompt's work (003_worker_proxy).
+// Builds the static shell and wires the roast request to the Worker. The request
+// is non-streaming for now; the typing-effect streaming display is 004's work.
 export function mountApp(root: HTMLElement): void {
   root.innerHTML = `
     <main class="app">
@@ -54,12 +54,99 @@ export function mountApp(root: HTMLElement): void {
     </main>
   `
 
-  // Live character count against the client-side input cap.
   const textarea = root.querySelector<HTMLTextAreaElement>('#profile')
   const counter = root.querySelector<HTMLSpanElement>('#char-count')
+  const button = root.querySelector<HTMLButtonElement>('#roast')
+  const output = root.querySelector<HTMLDivElement>('#roast-output')
+
+  // Live character count against the client-side input cap.
   if (textarea && counter) {
     textarea.addEventListener('input', () => {
       counter.textContent = String(textarea.value.length)
     })
+  }
+
+  if (textarea && button && output) {
+    button.addEventListener('click', () => {
+      void runRoast(textarea, root, output, button)
+    })
+  }
+}
+
+function setOutput(output: HTMLElement, text: string): void {
+  output.textContent = text
+}
+
+function randomError(): string {
+  const strings = copy.errorStrings
+  return strings[Math.floor(Math.random() * strings.length)] ?? strings[0]
+}
+
+function selectedIntensity(root: HTMLElement): Intensity {
+  const checked = root.querySelector<HTMLInputElement>(
+    'input[name="intensity"]:checked',
+  )
+  const value = checked?.value
+  return intensityLevels.includes(value as Intensity)
+    ? (value as Intensity)
+    : config.defaultIntensity
+}
+
+async function runRoast(
+  textarea: HTMLTextAreaElement,
+  root: HTMLElement,
+  output: HTMLElement,
+  button: HTMLButtonElement,
+): Promise<void> {
+  const profile = textarea.value.trim()
+  if (!profile) {
+    setOutput(output, 'Paste some profile text first.')
+    return
+  }
+  if (profile.length > config.maxInputChars) {
+    setOutput(output, `That is longer than ${config.maxInputChars} characters. Trim it down.`)
+    return
+  }
+  if (!config.workerUrl) {
+    setOutput(output, 'Roasting is not configured in this build yet (no Worker URL).')
+    return
+  }
+
+  button.disabled = true
+  setOutput(output, 'Roasting…')
+
+  try {
+    const response = await fetch(config.workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profile,
+        intensity: selectedIntensity(root),
+        model: config.defaultModel,
+      }),
+    })
+
+    if (!response.ok) {
+      // Explicable limits and bad requests carry a plain message; everything
+      // else is shown in character. A failed roast never triggers a second
+      // model call.
+      const data = (await response.json().catch(() => null)) as
+        | { error?: string; message?: string }
+        | null
+      const plain = new Set(['too_large', 'bad_model', 'bad_request', 'rate_limited'])
+      if (data && data.error && plain.has(data.error) && data.message) {
+        setOutput(output, data.message)
+      } else {
+        setOutput(output, randomError())
+      }
+      return
+    }
+
+    const data = (await response.json()) as { roast?: string }
+    setOutput(output, data.roast?.trim() || randomError())
+  } catch {
+    setOutput(output, randomError())
+  } finally {
+    button.disabled = false
   }
 }

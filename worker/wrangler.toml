@@ -1,0 +1,11 @@
+name = "roast-a-researcher"
+main = "src/index.ts"
+compatibility_date = "2026-06-05"
+
+# Non-secret configuration (committed). Secrets (OPENROUTER_API_KEY) are set with
+# `wrangler secret put` for the deployed Worker, or in worker/.dev.vars
+# (git-ignored) for local `wrangler dev`.
+[vars]
+ALLOW_ORIGIN = "https://eelkedevries.github.io"
+MODEL_ALLOWLIST = "google/gemini-2.5-flash-lite"
+MAX_INPUT_CHARS = "12000"

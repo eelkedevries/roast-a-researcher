@@ -11,9 +11,16 @@ This file records what *is* (current reality). The binding design canon is `docs
 - **Build/dev scaffold** — Vite + TypeScript static site, building to `dist/`.
 - **Front-end shell** — static roast UI (`src/main.ts`, `src/ui.ts`): paste field
   with live character count, three-level intensity control (default `spicy`),
-  empty roast output area, profile-source helper lines, self-directed framing,
-  and the privacy notice. Public build config in `src/config.ts`. No backend
-  call yet (wired in `003_worker_proxy`).
+  roast output area, profile-source helper lines, self-directed framing, and the
+  privacy notice. Public build config in `src/config.ts`. The roast button POSTs
+  `{ profile, intensity, model }` to `WORKER_URL` and renders the roast or an
+  in-character error.
+- **Worker proxy** (`worker/`) — Cloudflare Worker that proxies a non-streaming
+  roast to OpenRouter: CORS preflight + origin pinning to the Pages origin,
+  validation (method, content type, input size, model allowlist), a server-side
+  system prompt carrying the content rules + intensity, then a non-streaming
+  OpenRouter call returning `{ roast }`. Secret `OPENROUTER_API_KEY` via
+  `wrangler secret put` / local `worker/.dev.vars` (git-ignored).
 
 ## Key decisions
 
@@ -26,8 +33,13 @@ This file records what *is* (current reality). The binding design canon is `docs
 
 ## In progress / next
 
-- `003_worker_proxy` drafted and approved; not run. Needs an OpenRouter account +
-  key and a Cloudflare account before it can deploy and verify end to end.
+- `003_worker_proxy` code complete and verified locally via `wrangler dev` (real
+  roast returned; forged-origin → 403, oversized → 413, bad model → 400).
+  Automated checks pass (`npm run build`, `wrangler deploy --dry-run`).
+- **Deploy pending** (blocked by a Cloudflare API incident on 2026-06-05): run
+  `wrangler deploy`, set the `OPENROUTER_API_KEY` secret with a fresh key, then
+  set `WORKER_URL` in `src/config.ts` to the deployed Worker URL and redeploy the
+  front end. Until then the deployed site shows "not configured".
 
 ## Prompts run
 
@@ -35,3 +47,4 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 
 - 001_setup.md
 - 002_frontend_shell.md
+- 003_worker_proxy.md (code; deploy pending)

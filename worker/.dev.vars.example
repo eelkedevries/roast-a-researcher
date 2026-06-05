@@ -1,0 +1,4 @@
+# Template for local Worker secrets. Copy this file to worker/.dev.vars and fill
+# in the value; worker/.dev.vars is git-ignored. For the deployed Worker, set the
+# secret instead with: npx wrangler secret put OPENROUTER_API_KEY
+OPENROUTER_API_KEY=sk-or-your-key-here
