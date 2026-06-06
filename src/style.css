@@ -319,7 +319,6 @@ body {
 }
 
 .search__results {
-  list-style: none;
   margin: 0.4rem 0 0;
   padding: 0;
   display: flex;
@@ -327,9 +326,37 @@ body {
   gap: 0.3rem;
 }
 
-.search__pick {
-  width: 100%;
-  text-align: left;
+.search__result {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.search__check {
+  flex: 0 0 auto;
+}
+
+.search__name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.search__tag {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+
+.search__add {
+  align-self: flex-start;
+  margin-top: 0.1rem;
 }
 
 .search__status {

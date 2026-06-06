@@ -47,7 +47,7 @@ export function mountApp(root: HTMLElement): void {
             <button id="search-btn" class="button button--small search__btn" type="button">Search</button>
           </div>
           <p class="field__hint">Searches GitHub, ORCID and OpenAlex. Google Scholar and LinkedIn have no open search — paste or upload those.</p>
-          <ul id="search-results" class="search__results"></ul>
+          <div id="search-results" class="search__results"></div>
         </div>
 
         <div class="intensity" role="radiogroup" aria-label="${copy.intensityLabel}">
@@ -163,7 +163,7 @@ export function mountApp(root: HTMLElement): void {
   // validated/retrieved on Roast as usual.
   const searchQuery = root.querySelector<HTMLInputElement>('#search-query')
   const searchBtn = root.querySelector<HTMLButtonElement>('#search-btn')
-  const searchResults = root.querySelector<HTMLUListElement>('#search-results')
+  const searchResults = root.querySelector<HTMLElement>('#search-results')
   if (searchQuery && searchBtn && searchResults && linksContainer) {
     const runSearch = (): void => {
       void doSearch(searchQuery.value, searchResults, linksContainer)
@@ -323,27 +323,50 @@ async function doSearch(
   }
 
   if (!found.length) {
-    const li = document.createElement('li')
-    li.className = 'search__status'
-    li.textContent = 'No matches found.'
-    results.appendChild(li)
+    const empty = document.createElement('p')
+    empty.className = 'search__status'
+    empty.textContent = 'No matches found.'
+    results.appendChild(empty)
     return
   }
 
+  // Each candidate is a checkbox row; the platform is tagged behind the name.
+  // "Add selected" appends a link row for every ticked candidate, then clears
+  // the result list.
+  const checks: Array<{ checkbox: HTMLInputElement; candidate: Candidate }> = []
   for (const { source, candidate } of found) {
-    const li = document.createElement('li')
-    const pick = document.createElement('button')
-    pick.type = 'button'
-    pick.className = 'button button--small search__pick'
+    const row = document.createElement('label')
+    row.className = 'search__result'
+
+    const checkbox = document.createElement('input')
+    checkbox.type = 'checkbox'
+    checkbox.className = 'search__check'
+
+    const name = document.createElement('span')
+    name.className = 'search__name'
     const affil = candidate.affiliation ? ` — ${candidate.affiliation}` : ''
-    pick.textContent = `${candidate.name}${affil} · ${SOURCE_LABELS[source]}`
-    pick.addEventListener('click', () => {
-      addLinkRow(linksContainer, candidate.id)
-      results.textContent = ''
-    })
-    li.appendChild(pick)
-    results.appendChild(li)
+    name.textContent = `${candidate.name}${affil}`
+
+    const tag = document.createElement('span')
+    tag.className = 'search__tag'
+    tag.textContent = SOURCE_LABELS[source]
+
+    row.append(checkbox, name, tag)
+    results.appendChild(row)
+    checks.push({ checkbox, candidate })
   }
+
+  const add = document.createElement('button')
+  add.type = 'button'
+  add.className = 'button button--small search__add'
+  add.textContent = 'Add selected'
+  add.addEventListener('click', () => {
+    const chosen = checks.filter(({ checkbox }) => checkbox.checked)
+    if (!chosen.length) return
+    for (const { candidate } of chosen) addLinkRow(linksContainer, candidate.id)
+    results.textContent = ''
+  })
+  results.appendChild(add)
 }
 
 // Validate each non-empty link row by retrieving it via the Worker, marking the
