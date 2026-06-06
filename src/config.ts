@@ -39,12 +39,6 @@ export const copy = {
   intensityHint:
     'Defaults to spicy. Dial it down before roasting if you would prefer a ' +
     'gentler touch.',
-  helperHeading: 'Where to get your profile text',
-  helperLines: [
-    'LinkedIn — open More ▸ Save to PDF, then upload or paste the text.',
-    'Google Scholar — copy your public profile, or export your citations as CSV.',
-    'ORCID — paste your iD or your public record.',
-  ],
   roastButton: 'Roast me',
   outputPlaceholder: 'Your roast will appear here.',
   privacyNotice:

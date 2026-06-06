@@ -86,13 +86,6 @@ export function mountApp(root: HTMLElement): void {
         </div>
       </section>
 
-      <section class="panel helper" aria-label="Where to get your profile text">
-        <h2 class="helper__heading">${copy.helperHeading}</h2>
-        <ul class="helper__list">
-          ${copy.helperLines.map((line) => `<li>${line}</li>`).join('')}
-        </ul>
-      </section>
-
       <footer class="app__footer">
         <p class="privacy">${copy.privacyNotice}
           <a class="privacy__link" href="${copy.providerPolicyUrl}" target="_blank" rel="noopener">${copy.providerPolicyLabel}</a>.</p>
