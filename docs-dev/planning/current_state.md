@@ -63,10 +63,19 @@ This file records what *is* (current reality). The binding design canon is `docs
   calculation. **Live end-to-end verification against the real APIs is still
   pending** — it could not run in the build container (network allowlist blocks
   `pub.orcid.org` / `api.openalex.org`).
-- Remaining prompt: `018_retrieval_cache` (KV cache of `/retrieve`). **Blocked on
-  a spec decision** — it conflicts with the locked "Data flow and statelessness"
-  rule; the spec must be revised (cache only public-record retrievals, set a TTL,
-  bump version) before it can run.
+- Enrichment batch `020`–`027` done (ScholarFolio-inspired, all free/keyless):
+  ORCID grants+awards (`020`); OpenAlex FWCI + journal citedness (`021`), p-index
+  (`022`), Semantic Scholar TLDR + influential citations by DOI (`023`, spec v1.8),
+  named frequent co-authors (`024`); structured chart data in `/retrieve` (`025`),
+  trend analysis folded into the roast text (`026`, `worker/src/trends.ts`), and
+  client-side SVG charts below the roast (`027`, `src/charts.ts`, spec v1.9 — adds
+  visualisation to scope). The OpenAlex `/retrieve` response is now
+  `{ text, stats, charts }`. All verified via `npm run check` + `wrangler
+  deploy --dry-run`; live API field availability still to confirm in-browser.
+- Remaining prompt: `018_retrieval_cache` (KV cache of `/retrieve`). **Not run —
+  blocked on a spec decision** — it conflicts with the locked "Data flow and
+  statelessness" rule; the spec must be revised (cache only public-record
+  retrievals, set a TTL, bump version) before it can run.
 - Security follow-up: the OpenRouter production key was provided over chat; rotate
   it from the machine (`wrangler secret put OPENROUTER_API_KEY`, typed privately),
   and delete the temporary Cloudflare API token.
@@ -93,3 +102,11 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 - 016_metrics.md (computed citation metrics folded into OpenAlex text)
 - 019_openalex_enrichment.md (open-access breakdown + collaboration geography)
 - 017_name_search.md (Worker /search + front-end candidate picker; spec v1.5)
+- 020_orcid_grants_awards.md (ORCID fundings + distinctions)
+- 021_openalex_field_metrics.md (FWCI + mean journal citedness)
+- 022_openalex_pindex.md (journal-year citation percentile)
+- 023_semantic_scholar.md (keyless TLDR + influential citations by DOI; spec v1.8)
+- 024_named_coauthors.md (frequent named co-authors from authorships)
+- 025_chart_data.md (structured chart series in /retrieve)
+- 026_trend_analysis.md (factual trend block in the roast text)
+- 027_charts.md (client-side SVG charts; visualisation now in scope; spec v1.9)
