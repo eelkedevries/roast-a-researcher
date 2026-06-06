@@ -306,14 +306,16 @@ body {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-}
-
-.search__source {
-  flex: 0 0 auto;
+  flex-wrap: wrap;
 }
 
 .search__query {
-  flex: 1;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.search__btn {
+  flex: 0 0 auto;
 }
 
 .search__results {

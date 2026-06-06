@@ -1,7 +1,13 @@
 import { config, copy, intensityLevels, type Intensity } from './config'
 import { extractText, UnsupportedFileError } from './extract'
 import { copyText, downloadText, downloadImage } from './share'
-import { detectSource, retrieveSource, searchSource, type SourceKind } from './sources'
+import {
+  detectSource,
+  retrieveSource,
+  searchSource,
+  type SourceKind,
+  type Candidate,
+} from './sources'
 
 // Builds the static shell and wires the roast request to the Worker (streamed,
 // with a typing effect), multi-file upload, and sharing.
@@ -36,15 +42,11 @@ export function mountApp(root: HTMLElement): void {
         <div class="search">
           <span class="field__label">Or search by name</span>
           <div class="search__row">
-            <select id="search-source" class="field__input search__source" aria-label="Source to search">
-              <option value="github">GitHub</option>
-              <option value="openalex">OpenAlex</option>
-              <option value="orcid">ORCID</option>
-            </select>
             <input id="search-query" class="field__input search__query" type="text"
               placeholder="Researcher name" />
-            <button id="search-btn" class="button button--small" type="button">Search</button>
+            <button id="search-btn" class="button button--small search__btn" type="button">Search</button>
           </div>
+          <p class="field__hint">Searches GitHub, ORCID and OpenAlex. Google Scholar and LinkedIn have no open search — paste or upload those.</p>
           <ul id="search-results" class="search__results"></ul>
         </div>
 
@@ -156,20 +158,15 @@ export function mountApp(root: HTMLElement): void {
     addLinkBtn.addEventListener('click', () => addLinkRow(linksContainer))
   }
 
-  // Search by name: query a source, list candidates, and on selection add a
-  // pre-filled link row whose id is then validated/retrieved on Roast as usual.
-  const searchSourceSel = root.querySelector<HTMLSelectElement>('#search-source')
+  // Search by name across all supported sources at once, list the merged
+  // candidates, and on selection add a pre-filled link row whose id is then
+  // validated/retrieved on Roast as usual.
   const searchQuery = root.querySelector<HTMLInputElement>('#search-query')
   const searchBtn = root.querySelector<HTMLButtonElement>('#search-btn')
   const searchResults = root.querySelector<HTMLUListElement>('#search-results')
-  if (searchSourceSel && searchQuery && searchBtn && searchResults && linksContainer) {
+  if (searchQuery && searchBtn && searchResults && linksContainer) {
     const runSearch = (): void => {
-      void doSearch(
-        searchSourceSel.value as SourceKind,
-        searchQuery.value,
-        searchResults,
-        linksContainer,
-      )
+      void doSearch(searchQuery.value, searchResults, linksContainer)
     }
     searchBtn.addEventListener('click', runSearch)
     searchQuery.addEventListener('keydown', (e) => {
@@ -287,10 +284,17 @@ function addLinkRow(container: HTMLElement, value = ''): void {
   container.appendChild(row)
 }
 
-// Search a source by name and render the candidate list. Selecting a candidate
-// adds a pre-filled link row (its concrete id), which is validated on Roast.
+const SEARCH_SOURCES: readonly SourceKind[] = ['github', 'orcid', 'openalex']
+const SOURCE_LABELS: Record<SourceKind, string> = {
+  github: 'GitHub',
+  orcid: 'ORCID',
+  openalex: 'OpenAlex',
+}
+
+// Search every supported source by name at once and render the merged candidate
+// list, each tagged with its source. Selecting a candidate adds a pre-filled link
+// row (its concrete id), which is validated on Roast.
 async function doSearch(
-  source: SourceKind,
   query: string,
   results: HTMLElement,
   linksContainer: HTMLElement,
@@ -303,17 +307,22 @@ async function doSearch(
   pending.textContent = 'Searching…'
   results.appendChild(pending)
 
-  const result = await searchSource(config.workerUrl, source, query)
+  const settled = await Promise.all(
+    SEARCH_SOURCES.map(async (source) => ({
+      source,
+      result: await searchSource(config.workerUrl, source, query),
+    })),
+  )
   results.textContent = ''
 
-  if (!result.ok) {
-    const li = document.createElement('li')
-    li.className = 'search__status'
-    li.textContent = result.reason ?? 'Search failed.'
-    results.appendChild(li)
-    return
+  const found: Array<{ source: SourceKind; candidate: Candidate }> = []
+  for (const { source, result } of settled) {
+    for (const candidate of result.candidates ?? []) {
+      found.push({ source, candidate })
+    }
   }
-  if (!result.candidates || !result.candidates.length) {
+
+  if (!found.length) {
     const li = document.createElement('li')
     li.className = 'search__status'
     li.textContent = 'No matches found.'
@@ -321,13 +330,13 @@ async function doSearch(
     return
   }
 
-  for (const candidate of result.candidates) {
+  for (const { source, candidate } of found) {
     const li = document.createElement('li')
     const pick = document.createElement('button')
     pick.type = 'button'
     pick.className = 'button button--small search__pick'
     const affil = candidate.affiliation ? ` — ${candidate.affiliation}` : ''
-    pick.textContent = `${candidate.name}${affil}`
+    pick.textContent = `${candidate.name}${affil} · ${SOURCE_LABELS[source]}`
     pick.addEventListener('click', () => {
       addLinkRow(linksContainer, candidate.id)
       results.textContent = ''
