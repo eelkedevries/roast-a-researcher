@@ -1,5 +1,6 @@
 import { config, copy, intensityLevels, type Intensity } from './config'
 import { extractText, UnsupportedFileError } from './extract'
+import { copyText, downloadText, downloadImage } from './share'
 
 // Builds the static shell and wires the roast request to the Worker. The request
 // is non-streaming for now; the typing-effect streaming display is 004's work.
@@ -45,6 +46,11 @@ export function mountApp(root: HTMLElement): void {
       <section class="panel" aria-label="Roast output">
         <div id="roast-output" class="output" aria-live="polite">
           <p class="output__placeholder">${copy.outputPlaceholder}</p>
+        </div>
+        <div id="share" class="share" hidden>
+          <button id="share-copy" class="button button--small" type="button">Copy</button>
+          <button id="share-text" class="button button--small" type="button">Download .txt</button>
+          <button id="share-image" class="button button--small" type="button">Download image</button>
         </div>
       </section>
 
@@ -93,6 +99,24 @@ export function mountApp(root: HTMLElement): void {
       e.preventDefault()
       const file = e.dataTransfer?.files?.[0]
       if (file) void loadFile(file, textarea, counter)
+    })
+  }
+
+  // Share / export controls (revealed once a roast exists).
+  const copyBtn = root.querySelector<HTMLButtonElement>('#share-copy')
+  const textBtn = root.querySelector<HTMLButtonElement>('#share-text')
+  const imageBtn = root.querySelector<HTMLButtonElement>('#share-image')
+  if (output && copyBtn && textBtn && imageBtn) {
+    copyBtn.addEventListener('click', () => {
+      copyText(output.textContent ?? '').catch(() => {})
+    })
+    textBtn.addEventListener('click', () => {
+      const text = output.textContent ?? ''
+      if (text) downloadText(text, 'roast.txt')
+    })
+    imageBtn.addEventListener('click', () => {
+      const text = output.textContent ?? ''
+      if (text) downloadImage(text, copy.title, 'roast.png').catch(() => {})
     })
   }
 }
@@ -158,6 +182,7 @@ async function runRoast(
 
   button.disabled = true
   setOutput(output, 'Roasting…')
+  root.querySelector('#share')?.setAttribute('hidden', '')
 
   try {
     const response = await fetch(config.workerUrl, {
@@ -231,6 +256,8 @@ async function runRoast(
     }
     if (!roast.trim()) {
       setOutput(output, randomError())
+    } else {
+      root.querySelector('#share')?.removeAttribute('hidden')
     }
   } catch {
     setOutput(output, randomError())

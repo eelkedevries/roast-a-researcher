@@ -112,6 +112,26 @@ body {
   filter: brightness(1.05);
 }
 
+.button--small {
+  margin-top: 0;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.field__upload {
+  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .output {
   min-height: 6rem;
   white-space: pre-wrap;
