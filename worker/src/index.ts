@@ -719,6 +719,64 @@ async function semanticScholarByDoi(dois: string[]): Promise<Map<string, S2Enric
   return out
 }
 
+interface Coauthor {
+  name: string
+  institution: string | null
+  count: number
+}
+
+// Frequent named co-authors (024): tally the subject's works' authorships by
+// OpenAlex author id (excluding the subject), keeping the most-shared collaborators
+// with a representative institution. Factual — names only as OpenAlex reports them.
+async function openalexCoauthors(
+  id: string,
+  env: Env,
+  headers: Record<string, string>,
+  limit: number,
+): Promise<Coauthor[]> {
+  try {
+    const res = await fetch(
+      openalexUrl('works', env, {
+        filter: `author.id:${id}`,
+        'per-page': '200',
+        sort: 'cited_by_count:desc',
+        select: 'authorships',
+      }),
+      { headers },
+    )
+    if (!res.ok) return []
+    const data = (await res.json()) as {
+      results?: Array<{
+        authorships?: Array<{
+          author?: { id?: string; display_name?: string }
+          institutions?: Array<{ display_name?: string }>
+        }>
+      }>
+    }
+    const tally = new Map<string, Coauthor>()
+    for (const work of data.results ?? []) {
+      for (const a of work.authorships ?? []) {
+        const aid = a.author?.id?.match(/A\d+/)?.[0]
+        if (!aid || aid === id) continue
+        const existing = tally.get(aid)
+        if (existing) existing.count += 1
+        else
+          tally.set(aid, {
+            name: a.author?.display_name ?? aid,
+            institution: a.institutions?.[0]?.display_name ?? null,
+            count: 1,
+          })
+      }
+    }
+    return [...tally.values()]
+      .filter((c) => c.count >= 2)
+      .sort((x, y) => y.count - x.count)
+      .slice(0, limit)
+  } catch {
+    return []
+  }
+}
+
 async function retrieveOpenalex(
   input: string,
   env: Env,
@@ -813,6 +871,16 @@ async function retrieveOpenalex(
 
   // Open-access breakdown and collaboration geography (019).
   for (const line of await openalexEnrichment(id, env, headers)) lines.push(line)
+
+  // Frequent named co-authors (024), beyond the country/continent counts above.
+  const coauthors = await openalexCoauthors(id, env, headers, 8)
+  if (coauthors.length) {
+    lines.push('Frequent co-authors:')
+    for (const c of coauthors) {
+      const inst = c.institution ? ` (${c.institution})` : ''
+      lines.push(`- ${c.name}${inst} — ${c.count} shared papers`)
+    }
+  }
 
   // Field-normalised impact (021): field-weighted citation impact across works,
   // and the mean citedness of the journals published in (an impact-factor proxy).
