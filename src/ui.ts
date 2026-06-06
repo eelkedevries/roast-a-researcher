@@ -1,4 +1,5 @@
 import { config, copy, intensityLevels, type Intensity } from './config'
+import { extractText, UnsupportedFileError } from './extract'
 
 // Builds the static shell and wires the roast request to the Worker. The request
 // is non-streaming for now; the typing-effect streaming display is 004's work.
@@ -16,6 +17,12 @@ export function mountApp(root: HTMLElement): void {
         <textarea id="profile" class="field__input" rows="10"
           placeholder="${copy.inputPlaceholder}"></textarea>
         <p class="field__counter"><span id="char-count">0</span> / ${config.maxInputChars}</p>
+
+        <p class="field__upload">
+          <input id="file" type="file" accept=".txt,.md,.pdf,.docx,.odt" />
+          <span class="field__hint">…or drop a file onto the box above. Supported:
+            .txt, .md, .pdf, .docx, .odt.</span>
+        </p>
 
         <fieldset class="intensity">
           <legend class="field__label">${copy.intensityLabel}</legend>
@@ -71,6 +78,43 @@ export function mountApp(root: HTMLElement): void {
       void runRoast(textarea, root, output, button)
     })
   }
+
+  // File upload and drag-drop: extract text client-side into the editable field.
+  const fileInput = root.querySelector<HTMLInputElement>('#file')
+  if (fileInput && textarea && counter) {
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0]
+      if (file) void loadFile(file, textarea, counter)
+    })
+    textarea.addEventListener('dragover', (e) => {
+      e.preventDefault()
+    })
+    textarea.addEventListener('drop', (e) => {
+      e.preventDefault()
+      const file = e.dataTransfer?.files?.[0]
+      if (file) void loadFile(file, textarea, counter)
+    })
+  }
+}
+
+async function loadFile(
+  file: File,
+  textarea: HTMLTextAreaElement,
+  counter: HTMLElement,
+): Promise<void> {
+  const previous = textarea.value
+  textarea.value = `Extracting text from ${file.name}…`
+  try {
+    textarea.value = await extractText(file)
+  } catch (err) {
+    textarea.value = previous
+    window.alert(
+      err instanceof UnsupportedFileError
+        ? err.message
+        : 'Could not read that file. Paste the text instead.',
+    )
+  }
+  counter.textContent = String(textarea.value.length)
 }
 
 function setOutput(output: HTMLElement, text: string): void {
