@@ -1,0 +1,32 @@
+# Deploys the Cloudflare Worker (worker/) with wrangler, so a deploy needs no
+# local machine: it runs on push to main when worker code changes, or on manual
+# dispatch from the Actions tab. Authentication is via two repository secrets,
+# CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID; the front end deploys separately
+# through deploy-pages.yml.
+name: Deploy Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/**'
+      - '.github/workflows/deploy-worker.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Deploy Worker
+        working-directory: worker
+        run: npx --yes wrangler@4 deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
