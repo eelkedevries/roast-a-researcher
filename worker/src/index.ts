@@ -6,6 +6,7 @@
 
 import { metricsSummary, computeMetrics } from './metrics'
 import { continentOf } from './geo'
+import { trendSummary, type YearPoint } from './trends'
 
 // Minimal shape of the Workers KV binding we use (avoids a full
 // @cloudflare/workers-types dependency for a single counter).
@@ -1014,6 +1015,20 @@ async function retrieveOpenalex(
 
   // Structured, chart-ready series for the front-end plots (025).
   const charts = await openalexChartData(id, author.counts_by_year ?? [], env, headers)
+
+  // Trend analysis (026): factual observations over the per-year series, folded
+  // into the roast input so the model can roast the trajectory of a career.
+  const yearPoints: YearPoint[] = (author.counts_by_year ?? [])
+    .filter((c) => c.year != null)
+    .map((c) => ({
+      year: c.year as number,
+      works: c.works_count ?? 0,
+      citations: c.cited_by_count ?? 0,
+    }))
+  const dominantVenue =
+    (charts?.topVenues as Array<{ venue?: string }> | undefined)?.[0]?.venue ?? null
+  const trends = trendSummary(yearPoints, dominantVenue)
+  if (trends.length) lines.push('Trends:', ...trends)
 
   return new Response(JSON.stringify({ text: lines.join('\n'), stats, charts }), {
     status: 200,
