@@ -571,6 +571,7 @@ interface OpenAlexRichWork {
   abstract: string
   journalCitedness: number | null
   sourceId: string | null
+  doi: string | null
 }
 
 // Top works with venue and abstract, for the detailed roast material. Kept small
@@ -588,7 +589,7 @@ async function openalexTopWorks(
         filter: `author.id:${id}`,
         'per-page': String(limit),
         sort: 'cited_by_count:desc',
-        select: 'title,publication_year,cited_by_count,primary_location,abstract_inverted_index',
+        select: 'title,publication_year,cited_by_count,doi,primary_location,abstract_inverted_index',
       }),
       { headers },
     )
@@ -598,6 +599,7 @@ async function openalexTopWorks(
         title?: string
         publication_year?: number
         cited_by_count?: number
+        doi?: string | null
         primary_location?: {
           source?: {
             id?: string
@@ -616,6 +618,7 @@ async function openalexTopWorks(
       abstract: abstractFromInvertedIndex(w.abstract_inverted_index),
       journalCitedness: w.primary_location?.source?.summary_stats?.['2yr_mean_citedness'] ?? null,
       sourceId: w.primary_location?.source?.id ?? null,
+      doi: w.doi ? w.doi.replace(/^https?:\/\/doi\.org\//i, '').toLowerCase() : null,
     }))
   } catch {
     return []
@@ -671,6 +674,49 @@ async function openalexPIndex(
   return percentiles.length
     ? percentiles.reduce((a, b) => a + b, 0) / percentiles.length
     : null
+}
+
+interface S2Enrichment {
+  influential: number | null
+  tldr: string | null
+}
+
+// Semantic Scholar enrichment (023): keyless batch lookup of the top works' DOIs
+// for influential-citation counts and TLDR summaries. Returns a map keyed by bare
+// lowercase DOI; degrades to an empty map on any failure or rate limit.
+async function semanticScholarByDoi(dois: string[]): Promise<Map<string, S2Enrichment>> {
+  const out = new Map<string, S2Enrichment>()
+  if (!dois.length) return out
+  try {
+    const res = await fetch(
+      'https://api.semanticscholar.org/graph/v1/paper/batch?fields=externalIds,influentialCitationCount,tldr',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'roast-a-researcher',
+        },
+        body: JSON.stringify({ ids: dois.map((d) => `DOI:${d}`) }),
+      },
+    )
+    if (!res.ok) return out
+    const data = (await res.json()) as Array<{
+      externalIds?: { DOI?: string } | null
+      influentialCitationCount?: number | null
+      tldr?: { text?: string } | null
+    } | null>
+    for (const paper of data) {
+      const doi = paper?.externalIds?.DOI?.toLowerCase()
+      if (!doi) continue
+      out.set(doi, {
+        influential: paper?.influentialCitationCount ?? null,
+        tldr: paper?.tldr?.text ?? null,
+      })
+    }
+  } catch {
+    // Keyless best-effort enrichment; absence is fine.
+  }
+  return out
 }
 
 async function retrieveOpenalex(
@@ -795,6 +841,11 @@ async function retrieveOpenalex(
   if (pIndex != null) {
     lines.push(`p-index (mean journal-year citation percentile): ${pIndex.toFixed(0)} of 100`)
   }
+  // Semantic Scholar enrichment (023) for the top works that carry a DOI.
+  const s2 = await semanticScholarByDoi(
+    topWorks.map((w) => w.doi).filter((d): d is string => !!d),
+  )
+
   if (topWorks.length) {
     lines.push('Most-cited works:')
     for (const w of topWorks) {
@@ -807,6 +858,11 @@ async function retrieveOpenalex(
             : w.abstract
         lines.push(`  Abstract: ${a}`)
       }
+      const enrich = w.doi ? s2.get(w.doi) : undefined
+      if (enrich?.influential != null) {
+        lines.push(`  Influential citations: ${enrich.influential}`)
+      }
+      if (enrich?.tldr) lines.push(`  TL;DR: ${enrich.tldr}`)
     }
   }
 
