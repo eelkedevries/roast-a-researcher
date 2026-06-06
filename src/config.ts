@@ -51,6 +51,8 @@ export const copy = {
     'Your text is sent to a language-model provider (via OpenRouter) to ' +
     'generate the roast. Nothing is stored; the roast is produced per request. ' +
     'Read the provider’s data policy before pasting anything sensitive.',
+  providerPolicyUrl: 'https://openrouter.ai/privacy',
+  providerPolicyLabel: 'OpenRouter’s data policy',
   errorStrings: [
     'The model has stepped out for a sabbatical. Try again shortly.',
     'Peer review came back: revise and resubmit (in other words, try again).',

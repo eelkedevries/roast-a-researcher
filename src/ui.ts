@@ -62,7 +62,8 @@ export function mountApp(root: HTMLElement): void {
       </section>
 
       <footer class="app__footer">
-        <p class="privacy">${copy.privacyNotice}</p>
+        <p class="privacy">${copy.privacyNotice}
+          <a class="privacy__link" href="${copy.providerPolicyUrl}" target="_blank" rel="noopener">${copy.providerPolicyLabel}</a>.</p>
       </footer>
     </main>
   `

@@ -15,12 +15,16 @@ This file records what *is* (current reality). The binding design canon is `docs
   privacy notice. Public build config in `src/config.ts`. The roast button POSTs
   `{ profile, intensity, model }` to `WORKER_URL` and renders the roast or an
   in-character error.
-- **Worker proxy** (`worker/`) — Cloudflare Worker that proxies a non-streaming
-  roast to OpenRouter: CORS preflight + origin pinning to the Pages origin,
-  validation (method, content type, input size, model allowlist), a server-side
-  system prompt carrying the content rules + intensity, then a non-streaming
-  OpenRouter call returning `{ roast }`. Secret `OPENROUTER_API_KEY` via
-  `wrangler secret put` / local `worker/.dev.vars` (git-ignored).
+- **Worker proxy** (`worker/`) — Cloudflare Worker proxying a **streaming** roast
+  to OpenRouter: CORS preflight + origin pinning, validation (method, content
+  type, input size, model allowlist), per-IP daily rate limit (hashed IP in
+  Workers KV, plain `429`), a server-side system prompt with the content rules +
+  intensity, then `stream: true` relayed as SSE without buffering. Secrets
+  `OPENROUTER_API_KEY` + `IP_HASH_SALT`.
+- **Front-end extras** — SSE reader with typing effect (`src/ui.ts`); client-side
+  file→text extraction (`src/extract.ts`: txt/md/pdf/docx/odt, lazy-loaded);
+  client-side share/export (`src/share.ts`: copy, .txt, canvas PNG); `noindex` +
+  provider-policy link.
 
 ## Key decisions
 
@@ -33,16 +37,15 @@ This file records what *is* (current reality). The binding design canon is `docs
 
 ## In progress / next
 
-- `003_worker_proxy` complete and verified end-to-end on the **deployed Worker**
-  `https://roast-a-researcher.eelkedevries.workers.dev`: live roast 200; forged
-  origin 403, oversized 413, bad model 400. `WORKER_URL` wired in `src/config.ts`.
-- Worker subdomain registered: `eelkedevries.workers.dev`. Secret
-  `OPENROUTER_API_KEY` set via `wrangler secret put`.
-- Next: deploy the front end to GitHub Pages (Settings → Pages → Source: GitHub
-  Actions, then run `deploy-pages.yml`) so the public site is live; then
-  `004_streaming`.
-- Security follow-up: the production OpenRouter key was provided over chat; rotate
-  it from the machine (`wrangler secret put OPENROUTER_API_KEY`, typed privately).
+- First version complete and live: front end at
+  `https://eelkedevries.github.io/roast-a-researcher/`, Worker at
+  `https://roast-a-researcher.eelkedevries.workers.dev` (subdomain
+  `eelkedevries.workers.dev`, KV `RATE_LIMIT`).
+- `009_orcid` and `010_openalex` remain (later phase): need an ORCID read-public
+  token and an OpenAlex API key, plus a Worker deploy.
+- Security follow-up: the OpenRouter production key was provided over chat; rotate
+  it from the machine (`wrangler secret put OPENROUTER_API_KEY`, typed privately),
+  and delete the temporary Cloudflare API token.
 
 ## Prompts run
 
@@ -50,4 +53,9 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 
 - 001_setup.md
 - 002_frontend_shell.md
-- 003_worker_proxy.md (code; deploy pending)
+- 003_worker_proxy.md
+- 004_streaming.md
+- 005_rate_and_caps.md
+- 006_input_files.md
+- 007_share_export.md
+- 008_privacy_and_polish.md
