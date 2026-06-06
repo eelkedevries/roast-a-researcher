@@ -24,6 +24,7 @@ export interface Env {
   IP_HASH_SALT: string
   RATE_LIMIT: KvCounter
   GITHUB_TOKEN?: string
+  ORCID_TOKEN?: string
 }
 
 type Intensity = 'mild' | 'medium' | 'spicy'
@@ -140,8 +141,10 @@ async function handleRetrieve(
   switch (source) {
     case 'github':
       return retrieveGithub(id, env, allowOrigin)
+    case 'orcid':
+      return retrieveOrcid(id, env, allowOrigin)
     default:
-      // ORCID and OpenAlex are added in 009/010.
+      // OpenAlex is added in 010.
       return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
   }
 }
@@ -235,6 +238,156 @@ async function retrieveGithub(
       const stars = r.stargazers_count ? `, ★${r.stargazers_count}` : ''
       lines.push(`- ${r.name ?? ''}${lang}${stars}${r.description ? `: ${r.description}` : ''}`)
     }
+  }
+
+  return new Response(JSON.stringify({ text: lines.join('\n') }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
+  })
+}
+
+// --- ORCID ---
+
+// Validate an ORCID iD's check digit (ISO 7064 MOD 11-2 over the first 15 digits).
+function orcidChecksumValid(digits: string): boolean {
+  let total = 0
+  for (let i = 0; i < 15; i++) {
+    total = (total + Number(digits[i])) * 2
+  }
+  const remainder = total % 11
+  const result = (12 - remainder) % 11
+  const check = result === 10 ? 'X' : String(result)
+  return check === digits[15].toUpperCase()
+}
+
+// Extract a canonical, checksum-valid ORCID iD from a bare iD or an orcid.org URL.
+function parseOrcidId(input: string): string | null {
+  const match = input.trim().match(/(\d{4}-\d{4}-\d{4}-\d{3}[\dxX])/)
+  if (!match) return null
+  const id = match[1].toUpperCase()
+  return orcidChecksumValid(id.replace(/-/g, '')) ? id : null
+}
+
+function orcidDateRange(start: unknown, end: unknown): string {
+  const year = (d: unknown): string | null => {
+    const v = (d as { year?: { value?: string } } | null)?.year?.value
+    return v ? String(v) : null
+  }
+  const from = year(start)
+  const to = year(end)
+  if (!from && !to) return ''
+  return ` (${from ?? '?'}–${to ?? 'present'})`
+}
+
+async function retrieveOrcid(
+  input: string,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
+  const id = parseOrcidId(input)
+  if (!id) {
+    return jsonError(
+      'invalid_identifier',
+      'That is not a valid ORCID iD or orcid.org URL.',
+      400,
+      allowOrigin,
+    )
+  }
+
+  // The public record is readable with only an Accept header; a read-public
+  // token is sent only when configured, to raise rate limits.
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'User-Agent': 'roast-a-researcher',
+  }
+  if (env.ORCID_TOKEN) headers['Authorization'] = `Bearer ${env.ORCID_TOKEN}`
+
+  let res: Response
+  try {
+    res = await fetch(`https://pub.orcid.org/v3.0/${id}/record`, { headers })
+  } catch {
+    return jsonError('source_error', 'Could not reach ORCID.', 502, allowOrigin)
+  }
+  if (res.status === 404) {
+    return jsonError('not_found', 'No ORCID record with that iD.', 404, allowOrigin)
+  }
+  if (!res.ok) {
+    return jsonError('source_error', 'ORCID returned an error.', 502, allowOrigin)
+  }
+
+  type Affiliation = {
+    'role-title'?: string | null
+    'department-name'?: string | null
+    organization?: { name?: string } | null
+    'start-date'?: unknown
+    'end-date'?: unknown
+  }
+  type Group = { summaries?: Array<Record<string, Affiliation>> }
+  const record = (await res.json()) as {
+    person?: {
+      name?: {
+        'credit-name'?: { value?: string } | null
+        'given-names'?: { value?: string } | null
+        'family-name'?: { value?: string } | null
+      } | null
+      biography?: { content?: string } | null
+    }
+    'activities-summary'?: {
+      employments?: { 'affiliation-group'?: Group[] }
+      educations?: { 'affiliation-group'?: Group[] }
+      works?: { group?: Array<{ 'work-summary'?: Array<{ title?: { title?: { value?: string } } }> }> }
+    }
+  }
+
+  const name = record.person?.name
+  const fullName = [name?.['given-names']?.value, name?.['family-name']?.value]
+    .filter(Boolean)
+    .join(' ')
+  const displayName = name?.['credit-name']?.value || fullName || id
+
+  const lines: string[] = [`ORCID: ${displayName} (${id})`]
+
+  const bio = record.person?.biography?.content
+  if (bio) lines.push(`Bio: ${bio.trim()}`)
+
+  const affiliationLines = (groups: Group[] | undefined, key: string): string[] => {
+    const out: string[] = []
+    for (const group of groups ?? []) {
+      for (const summary of group.summaries ?? []) {
+        const a = summary[key]
+        if (!a) continue
+        const org = a.organization?.name ?? ''
+        const role = a['role-title'] ?? ''
+        const dept = a['department-name'] ? `, ${a['department-name']}` : ''
+        const range = orcidDateRange(a['start-date'], a['end-date'])
+        const text = [role, org].filter(Boolean).join(', ')
+        if (text) out.push(`- ${text}${dept}${range}`)
+      }
+    }
+    return out
+  }
+
+  const employment = affiliationLines(
+    record['activities-summary']?.employments?.['affiliation-group'],
+    'employment-summary',
+  )
+  if (employment.length) lines.push('Employment:', ...employment)
+
+  const education = affiliationLines(
+    record['activities-summary']?.educations?.['affiliation-group'],
+    'education-summary',
+  )
+  if (education.length) lines.push('Education:', ...education)
+
+  const titles: string[] = []
+  for (const group of record['activities-summary']?.works?.group ?? []) {
+    const title = group['work-summary']?.[0]?.title?.title?.value
+    if (title) titles.push(title.trim())
+    if (titles.length >= 15) break
+  }
+  if (titles.length) {
+    lines.push('Selected works:')
+    for (const t of titles) lines.push(`- ${t}`)
   }
 
   return new Response(JSON.stringify({ text: lines.join('\n') }), {
