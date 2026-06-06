@@ -21,6 +21,14 @@ This file records what *is* (current reality). The binding design canon is `docs
   Workers KV, plain `429`), a server-side system prompt with the content rules +
   intensity, then `stream: true` relayed as SSE without buffering. Secrets
   `OPENROUTER_API_KEY` + `IP_HASH_SALT`.
+- **Structured-source retrieval** (`worker/src/index.ts`) — `/retrieve`
+  (`{source,id}` → `{text}`/`{error,reason}`) for GitHub, ORCID and OpenAlex, and
+  `/search` (`{source,query}` → `{candidates:[{id,name,affiliation}]}`) for all
+  three. ORCID uses the keyless public record (iD format + ISO 7064 checksum
+  validation); OpenAlex is keyless (author metrics + works), folding in computed
+  citation metrics (`worker/src/metrics.ts`: total/h/g/i10/h5/mean) and an
+  open-access + collaboration-geography summary (`worker/src/geo.ts`). Optional
+  `ORCID_TOKEN` / `OPENALEX_API_KEY` / `GITHUB_TOKEN` only raise rate limits.
 - **Front-end extras** — SSE reader with typing effect (`src/ui.ts`); client-side
   file→text extraction (`src/extract.ts`: txt/md/pdf/docx/odt, lazy-loaded);
   client-side share/export (`src/share.ts`: copy, .txt, canvas PNG); `noindex` +
@@ -41,17 +49,24 @@ This file records what *is* (current reality). The binding design canon is `docs
   `https://eelkedevries.github.io/roast-a-researcher/`, Worker at
   `https://roast-a-researcher.eelkedevries.workers.dev` (subdomain
   `eelkedevries.workers.dev`, KV `RATE_LIMIT`).
-- Structured-source retrieval phase (spec v1.2): `013_upload_list` and
-  `011_github` done. GitHub retrieval is live on the Worker's `/retrieve` path
-  (`{source,id}` → `{text}` / `{error,reason}`), verified end-to-end.
 - `012_source_input_panel` done: a "Profile links" panel (single-line inputs +
   "+ Add link") validates each link on Roast via the Worker's `/retrieve` —
-  tick/cross + reason — and merges retrieved text into the roast. GitHub works
-  end-to-end; ORCID/OpenAlex links return "not available yet" until `009`/`010`
-  exist. Unsupported URLs (Scholar/LinkedIn/etc.) fail with guidance to paste.
-- Remaining: `009_orcid` and `010_openalex` (Worker `/retrieve` cases) need an
-  ORCID read-public client and an OpenAlex API key. Once built, the existing panel
-  handles them with no front-end change.
+  tick/cross + reason — and merges retrieved text into the roast. A "search by
+  name" box (`017`) queries `/search` and lets the user pick a candidate, which
+  pre-fills a link row. Unsupported URLs (Scholar/LinkedIn/etc.) fail with
+  guidance to paste.
+- ORCID and OpenAlex retrieval are now **keyless** (spec v1.4 corrected the
+  earlier "key required" claim after empirical re-verification on 2026-06-06):
+  `009_orcid`, `010_openalex`, `016_metrics`, `019_openalex_enrichment`, and
+  `017_name_search` (spec v1.5) are all done. Built and type-checked via
+  `npm run check` + `wrangler deploy --dry-run`; metrics verified against a hand
+  calculation. **Live end-to-end verification against the real APIs is still
+  pending** — it could not run in the build container (network allowlist blocks
+  `pub.orcid.org` / `api.openalex.org`).
+- Remaining prompt: `018_retrieval_cache` (KV cache of `/retrieve`). **Blocked on
+  a spec decision** — it conflicts with the locked "Data flow and statelessness"
+  rule; the spec must be revised (cache only public-record retrievals, set a TTL,
+  bump version) before it can run.
 - Security follow-up: the OpenRouter production key was provided over chat; rotate
   it from the machine (`wrangler secret put OPENROUTER_API_KEY`, typed privately),
   and delete the temporary Cloudflare API token.
@@ -73,3 +88,8 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 - 014_input_panel_ux.md (dropzone + chips + segmented intensity)
 - 015_output_personalia.md (name in opening; personalia box from a model JSON header)
 - 012_source_input_panel.md (links panel; GitHub live, ORCID/OpenAlex pending 009/010)
+- 009_orcid.md (keyless ORCID public-record retrieval; spec v1.4)
+- 010_openalex.md (keyless OpenAlex metrics + works retrieval)
+- 016_metrics.md (computed citation metrics folded into OpenAlex text)
+- 019_openalex_enrichment.md (open-access breakdown + collaboration geography)
+- 017_name_search.md (Worker /search + front-end candidate picker; spec v1.5)
