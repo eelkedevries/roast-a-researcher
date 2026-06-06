@@ -570,6 +570,7 @@ interface OpenAlexRichWork {
   venue: string
   abstract: string
   journalCitedness: number | null
+  sourceId: string | null
 }
 
 // Top works with venue and abstract, for the detailed roast material. Kept small
@@ -599,6 +600,7 @@ async function openalexTopWorks(
         cited_by_count?: number
         primary_location?: {
           source?: {
+            id?: string
             display_name?: string
             summary_stats?: { '2yr_mean_citedness'?: number } | null
           } | null
@@ -613,10 +615,62 @@ async function openalexTopWorks(
       venue: w.primary_location?.source?.display_name ?? '',
       abstract: abstractFromInvertedIndex(w.abstract_inverted_index),
       journalCitedness: w.primary_location?.source?.summary_stats?.['2yr_mean_citedness'] ?? null,
+      sourceId: w.primary_location?.source?.id ?? null,
     }))
   } catch {
     return []
   }
+}
+
+// Percentile rank of a value within a cited_by_count group_by distribution:
+// proportion of papers with fewer citations, plus half of those with equal.
+function percentileInDistribution(value: number, groups: OpenAlexGroup[]): number | null {
+  let fewer = 0
+  let equal = 0
+  let total = 0
+  for (const g of groups) {
+    const c = Number(g.key)
+    if (!Number.isFinite(c)) continue
+    total += g.count
+    if (c < value) fewer += g.count
+    else if (c === value) equal += g.count
+  }
+  return total > 0 ? ((fewer + 0.5 * equal) / total) * 100 : null
+}
+
+// p-index (022): the mean percentile rank of the top works within their
+// journal-and-year cohort. Bounded to a few cohort lookups so a single retrieval
+// stays cheap. Null when no cohort can be resolved.
+async function openalexPIndex(
+  works: OpenAlexRichWork[],
+  env: Env,
+  headers: Record<string, string>,
+): Promise<number | null> {
+  const usable = works.filter((w) => w.sourceId && w.year != null).slice(0, 8)
+  const percentiles: number[] = []
+  for (const w of usable) {
+    const sid = w.sourceId?.match(/S\d+/)?.[0]
+    if (!sid) continue
+    try {
+      const res = await fetch(
+        openalexUrl('works', env, {
+          filter: `primary_location.source.id:${sid},publication_year:${w.year}`,
+          group_by: 'cited_by_count',
+        }),
+        { headers },
+      )
+      if (!res.ok) continue
+      const data = (await res.json()) as { group_by?: Array<{ key?: string; count?: number }> }
+      const groups = (data.group_by ?? []).map((g) => ({ key: g.key ?? '', count: g.count ?? 0 }))
+      const p = percentileInDistribution(w.citations, groups)
+      if (p != null) percentiles.push(p)
+    } catch {
+      // Skip this cohort; the p-index degrades to the cohorts that resolved.
+    }
+  }
+  return percentiles.length
+    ? percentiles.reduce((a, b) => a + b, 0) / percentiles.length
+    : null
 }
 
 async function retrieveOpenalex(
@@ -735,6 +789,12 @@ async function retrieveOpenalex(
   if (meanCitedness != null) {
     lines.push(`Mean journal citedness (≈ impact factor): ${meanCitedness.toFixed(2)}`)
   }
+
+  // p-index (022): mean journal-year citation percentile of the top works.
+  const pIndex = await openalexPIndex(topWorks, env, headers)
+  if (pIndex != null) {
+    lines.push(`p-index (mean journal-year citation percentile): ${pIndex.toFixed(0)} of 100`)
+  }
   if (topWorks.length) {
     lines.push('Most-cited works:')
     for (const w of topWorks) {
@@ -771,6 +831,7 @@ async function retrieveOpenalex(
       ...(meanCitedness != null
         ? [{ label: 'Journal citedness', value: meanCitedness.toFixed(2) }]
         : []),
+      ...(pIndex != null ? [{ label: 'p-index', value: pIndex.toFixed(0) }] : []),
     ],
   }
 
