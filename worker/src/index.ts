@@ -457,6 +457,20 @@ interface OpenAlexWork {
   citations: number
   year: number | null
   title: string
+  fwci: number | null
+  percentile: number | null
+}
+
+// Field-weighted citation impact across works: OpenAlex's native per-work `fwci`
+// when present, else approximated from the citation percentile (value / 50, where
+// 1.0 ≈ world average). Null when no work carries either field.
+function meanFwci(works: OpenAlexWork[]): number | null {
+  const vals: number[] = []
+  for (const w of works) {
+    if (w.fwci != null) vals.push(w.fwci)
+    else if (w.percentile != null) vals.push(w.percentile / 50)
+  }
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
 }
 
 interface OpenAlexGroup {
@@ -555,6 +569,7 @@ interface OpenAlexRichWork {
   citations: number
   venue: string
   abstract: string
+  journalCitedness: number | null
 }
 
 // Top works with venue and abstract, for the detailed roast material. Kept small
@@ -582,7 +597,12 @@ async function openalexTopWorks(
         title?: string
         publication_year?: number
         cited_by_count?: number
-        primary_location?: { source?: { display_name?: string } | null } | null
+        primary_location?: {
+          source?: {
+            display_name?: string
+            summary_stats?: { '2yr_mean_citedness'?: number } | null
+          } | null
+        } | null
         abstract_inverted_index?: Record<string, number[]>
       }>
     }
@@ -592,6 +612,7 @@ async function openalexTopWorks(
       citations: w.cited_by_count ?? 0,
       venue: w.primary_location?.source?.display_name ?? '',
       abstract: abstractFromInvertedIndex(w.abstract_inverted_index),
+      journalCitedness: w.primary_location?.source?.summary_stats?.['2yr_mean_citedness'] ?? null,
     }))
   } catch {
     return []
@@ -646,18 +667,26 @@ async function retrieveOpenalex(
         filter: `author.id:${id}`,
         'per-page': '200',
         sort: 'cited_by_count:desc',
-        select: 'title,publication_year,cited_by_count',
+        select: 'title,publication_year,cited_by_count,fwci,cited_by_percentile_year',
       }),
       { headers },
     )
     if (worksRes.ok) {
       const data = (await worksRes.json()) as {
-        results?: Array<{ title?: string; publication_year?: number; cited_by_count?: number }>
+        results?: Array<{
+          title?: string
+          publication_year?: number
+          cited_by_count?: number
+          fwci?: number | null
+          cited_by_percentile_year?: { value?: number } | null
+        }>
       }
       works = (data.results ?? []).map((w) => ({
         citations: w.cited_by_count ?? 0,
         year: w.publication_year ?? null,
         title: w.title ?? '',
+        fwci: w.fwci ?? null,
+        percentile: w.cited_by_percentile_year?.value ?? null,
       }))
     }
   } catch {
@@ -685,10 +714,27 @@ async function retrieveOpenalex(
   // Open-access breakdown and collaboration geography (019).
   for (const line of await openalexEnrichment(id, env, headers)) lines.push(line)
 
+  // Field-normalised impact (021): field-weighted citation impact across works,
+  // and the mean citedness of the journals published in (an impact-factor proxy).
+  const fwci = meanFwci(works)
+  if (fwci != null) {
+    lines.push(`Field-weighted citation impact (FWCI): ${fwci.toFixed(2)} (1.0 = world average)`)
+  }
+
   // Detailed top works (venue + abstract) give the model concrete material —
   // titles, where they appeared, and what they were about — to roast.
   const ABSTRACT_CHARS = 320
   const topWorks = (await openalexTopWorks(id, env, headers, 8)).filter((w) => w.title)
+
+  const citedness = topWorks
+    .map((w) => w.journalCitedness)
+    .filter((v): v is number => v != null)
+  const meanCitedness = citedness.length
+    ? citedness.reduce((a, b) => a + b, 0) / citedness.length
+    : null
+  if (meanCitedness != null) {
+    lines.push(`Mean journal citedness (≈ impact factor): ${meanCitedness.toFixed(2)}`)
+  }
   if (topWorks.length) {
     lines.push('Most-cited works:')
     for (const w of topWorks) {
@@ -721,6 +767,10 @@ async function retrieveOpenalex(
       { label: 'i10-index', value: String(author.summary_stats?.i10_index ?? m.i10) },
       { label: 'g-index', value: String(m.g) },
       { label: 'Mean citations', value: meanPerPaper.toFixed(1) },
+      ...(fwci != null ? [{ label: 'FWCI', value: fwci.toFixed(2) }] : []),
+      ...(meanCitedness != null
+        ? [{ label: 'Journal citedness', value: meanCitedness.toFixed(2) }]
+        : []),
     ],
   }
 
