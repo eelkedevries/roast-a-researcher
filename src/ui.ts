@@ -2,8 +2,8 @@ import { config, copy, intensityLevels, type Intensity } from './config'
 import { extractText, UnsupportedFileError } from './extract'
 import { copyText, downloadText, downloadImage } from './share'
 
-// Builds the static shell and wires the roast request to the Worker. The request
-// is non-streaming for now; the typing-effect streaming display is 004's work.
+// Builds the static shell and wires the roast request to the Worker (streamed,
+// with a typing effect), multi-file upload, and sharing.
 export function mountApp(root: HTMLElement): void {
   root.innerHTML = `
     <main class="app">
@@ -20,10 +20,12 @@ export function mountApp(root: HTMLElement): void {
         <p class="field__counter"><span id="char-count">0</span> / ${config.maxInputChars}</p>
 
         <p class="field__upload">
-          <input id="file" type="file" accept=".txt,.md,.pdf,.docx,.odt" />
-          <span class="field__hint">…or drop a file onto the box above. Supported:
+          <input id="file" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" />
+          <button id="upload" class="button button--small" type="button">Upload</button>
+          <span class="field__hint">…or drop files onto the box above. Supported:
             .txt, .md, .pdf, .docx, .odt.</span>
         </p>
+        <ul id="file-list" class="file-list"></ul>
 
         <fieldset class="intensity">
           <legend class="field__label">${copy.intensityLabel}</legend>
@@ -87,19 +89,22 @@ export function mountApp(root: HTMLElement): void {
   }
 
   // File upload and drag-drop: extract text client-side into the editable field.
+  // Multiple files are supported; each is listed with a tick or a cross + reason.
   const fileInput = root.querySelector<HTMLInputElement>('#file')
-  if (fileInput && textarea && counter) {
-    fileInput.addEventListener('change', () => {
-      const file = fileInput.files?.[0]
-      if (file) void loadFile(file, textarea, counter)
+  const uploadBtn = root.querySelector<HTMLButtonElement>('#upload')
+  const fileList = root.querySelector<HTMLUListElement>('#file-list')
+  if (fileInput && uploadBtn && fileList && textarea && counter) {
+    uploadBtn.addEventListener('click', () => {
+      const files = Array.from(fileInput.files ?? [])
+      if (files.length) void processFiles(files, textarea, counter, fileList)
     })
     textarea.addEventListener('dragover', (e) => {
       e.preventDefault()
     })
     textarea.addEventListener('drop', (e) => {
       e.preventDefault()
-      const file = e.dataTransfer?.files?.[0]
-      if (file) void loadFile(file, textarea, counter)
+      const files = Array.from(e.dataTransfer?.files ?? [])
+      if (files.length) void processFiles(files, textarea, counter, fileList)
     })
   }
 
@@ -122,24 +127,44 @@ export function mountApp(root: HTMLElement): void {
   }
 }
 
-async function loadFile(
-  file: File,
+// Extract each file client-side, listing it with a tick or a cross + reason, and
+// merge the successful files' text into the editable input.
+async function processFiles(
+  files: File[],
   textarea: HTMLTextAreaElement,
   counter: HTMLElement,
+  list: HTMLElement,
 ): Promise<void> {
-  const previous = textarea.value
-  textarea.value = `Extracting text from ${file.name}…`
-  try {
-    textarea.value = await extractText(file)
-  } catch (err) {
-    textarea.value = previous
-    window.alert(
-      err instanceof UnsupportedFileError
-        ? err.message
-        : 'Could not read that file. Paste the text instead.',
-    )
+  list.replaceChildren()
+  for (const file of files) {
+    const item = document.createElement('li')
+    item.className = 'file-list__item'
+    item.textContent = `… ${file.name}`
+    list.appendChild(item)
+    try {
+      appendToInput(textarea, await extractText(file))
+      item.textContent = `✓ ${file.name}`
+      item.classList.add('file-list__item--ok')
+    } catch (err) {
+      item.textContent = `✗ ${file.name}`
+      item.classList.add('file-list__item--fail')
+      const reason = document.createElement('small')
+      reason.className = 'file-list__reason'
+      reason.textContent =
+        err instanceof UnsupportedFileError
+          ? err.message
+          : 'Could not read that file.'
+      item.appendChild(reason)
+    }
+    counter.textContent = String(textarea.value.length)
   }
-  counter.textContent = String(textarea.value.length)
+}
+
+function appendToInput(textarea: HTMLTextAreaElement, text: string): void {
+  const trimmed = text.trim()
+  if (!trimmed) return
+  const existing = textarea.value.trim()
+  textarea.value = existing ? `${existing}\n\n${trimmed}` : trimmed
 }
 
 function setOutput(output: HTMLElement, text: string): void {

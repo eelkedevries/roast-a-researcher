@@ -41,8 +41,12 @@ This file records what *is* (current reality). The binding design canon is `docs
   `https://eelkedevries.github.io/roast-a-researcher/`, Worker at
   `https://roast-a-researcher.eelkedevries.workers.dev` (subdomain
   `eelkedevries.workers.dev`, KV `RATE_LIMIT`).
-- `009_orcid` and `010_openalex` remain (later phase): need an ORCID read-public
-  token and an OpenAlex API key, plus a Worker deploy.
+- Structured-source retrieval phase (spec v1.2): `013_upload_list` done
+  (multi-file upload list with per-file ✓/✗ + reason, merged into the input).
+  `009_orcid` / `010_openalex` / `011_github` (Worker retrieval) and
+  `012_source_input_panel` (the identifier/URL panel) remain — need an ORCID
+  read-public token and an OpenAlex API key (GitHub needs none) plus a Worker
+  deploy.
 - Security follow-up: the OpenRouter production key was provided over chat; rotate
   it from the machine (`wrangler secret put OPENROUTER_API_KEY`, typed privately),
   and delete the temporary Cloudflare API token.
@@ -59,3 +63,4 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 - 006_input_files.md
 - 007_share_export.md
 - 008_privacy_and_polish.md
+- 013_upload_list.md (run ahead of 009–012, which await API keys)
