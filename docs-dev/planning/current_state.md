@@ -44,9 +44,14 @@ This file records what *is* (current reality). The binding design canon is `docs
 - Structured-source retrieval phase (spec v1.2): `013_upload_list` and
   `011_github` done. GitHub retrieval is live on the Worker's `/retrieve` path
   (`{source,id}` → `{text}` / `{error,reason}`), verified end-to-end.
+- `012_source_input_panel` done: a "Profile links" panel (single-line inputs +
+  "+ Add link") validates each link on Roast via the Worker's `/retrieve` —
+  tick/cross + reason — and merges retrieved text into the roast. GitHub works
+  end-to-end; ORCID/OpenAlex links return "not available yet" until `009`/`010`
+  exist. Unsupported URLs (Scholar/LinkedIn/etc.) fail with guidance to paste.
 - Remaining: `009_orcid` and `010_openalex` (Worker `/retrieve` cases) need an
-  ORCID read-public client and an OpenAlex API key; `012_source_input_panel` (the
-  identifier/URL input UI) depends on those two. No UI exposes `/retrieve` yet.
+  ORCID read-public client and an OpenAlex API key. Once built, the existing panel
+  handles them with no front-end change.
 - Security follow-up: the OpenRouter production key was provided over chat; rotate
   it from the machine (`wrangler secret put OPENROUTER_API_KEY`, typed privately),
   and delete the temporary Cloudflare API token.
@@ -67,3 +72,4 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 - 011_github.md (GitHub needs no key; 009/010 still await ORCID/OpenAlex keys)
 - 014_input_panel_ux.md (dropzone + chips + segmented intensity)
 - 015_output_personalia.md (name in opening; personalia box from a model JSON header)
+- 012_source_input_panel.md (links panel; GitHub live, ORCID/OpenAlex pending 009/010)

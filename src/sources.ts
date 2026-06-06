@@ -1,0 +1,59 @@
+// Detects which structured source an identifier/URL belongs to, and retrieves it
+// via the Worker's /retrieve path. Arbitrary URLs (Scholar, LinkedIn, personal
+// sites) are not supported — they return null and the UI advises pasting text.
+
+export type SourceKind = 'orcid' | 'openalex' | 'github'
+
+export function detectSource(input: string): { source: SourceKind; id: string } | null {
+  const s = input.trim()
+  if (!s) return null
+
+  // Bare identifiers.
+  if (/^\d{4}-\d{4}-\d{4}-\d{3}[\dxX]$/.test(s)) return { source: 'orcid', id: s }
+  if (/^A\d{5,}$/i.test(s)) return { source: 'openalex', id: s }
+
+  // URLs (or host-like tokens).
+  if (/^https?:\/\//i.test(s) || s.includes('.')) {
+    try {
+      const url = new URL(s.startsWith('http') ? s : `https://${s}`)
+      const host = url.hostname.replace(/^www\./, '')
+      if (host === 'orcid.org' || host.endsWith('.orcid.org')) return { source: 'orcid', id: s }
+      if (host === 'openalex.org' || host.endsWith('.openalex.org')) return { source: 'openalex', id: s }
+      if (host === 'github.com' || host.endsWith('.github.com')) return { source: 'github', id: s }
+      return null // a URL we do not support
+    } catch {
+      return null
+    }
+  }
+
+  // A bare token: treat as a GitHub username.
+  if (/^[a-zA-Z0-9-]{1,39}$/.test(s)) return { source: 'github', id: s }
+  return null
+}
+
+export interface RetrieveResult {
+  ok: boolean
+  text?: string
+  reason?: string
+}
+
+export async function retrieveSource(
+  workerUrl: string,
+  source: SourceKind,
+  id: string,
+): Promise<RetrieveResult> {
+  try {
+    const response = await fetch(`${workerUrl}/retrieve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source, id }),
+    })
+    const data = (await response.json().catch(() => null)) as
+      | { text?: string; error?: string; message?: string }
+      | null
+    if (response.ok && data?.text) return { ok: true, text: data.text }
+    return { ok: false, reason: data?.message ?? 'Could not retrieve this link.' }
+  } catch {
+    return { ok: false, reason: 'Network error retrieving this link.' }
+  }
+}

@@ -244,6 +244,60 @@ body {
   color: var(--muted);
 }
 
+.links {
+  margin-top: 1rem;
+}
+
+.link-row {
+  margin-bottom: 0.5rem;
+}
+
+.link-row__top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.link-row__input {
+  flex: 1;
+}
+
+.link-row__status {
+  width: 1rem;
+  text-align: center;
+}
+
+.link-row--ok .link-row__status {
+  color: #6cc070;
+}
+
+.link-row--fail .link-row__status {
+  color: #e06c6c;
+}
+
+.link-row__remove {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.link-row__remove:hover {
+  color: var(--accent);
+}
+
+.link-row__reason {
+  display: block;
+  margin: 0.2rem 0 0;
+  color: #e0a0a0;
+}
+
+#add-link {
+  margin-top: 0.25rem;
+}
+
 .personalia {
   margin: 0 0 1rem;
   padding: 0.75rem 1rem;

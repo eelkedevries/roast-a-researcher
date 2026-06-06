@@ -1,6 +1,7 @@
 import { config, copy, intensityLevels, type Intensity } from './config'
 import { extractText, UnsupportedFileError } from './extract'
 import { copyText, downloadText, downloadImage } from './share'
+import { detectSource, retrieveSource } from './sources'
 
 // Builds the static shell and wires the roast request to the Worker (streamed,
 // with a typing effect), multi-file upload, and sharing.
@@ -25,6 +26,12 @@ export function mountApp(root: HTMLElement): void {
           <span class="dropzone__hint">or drag &amp; drop — .txt, .md, .pdf, .docx, .odt</span>
         </div>
         <ul id="file-list" class="file-list"></ul>
+
+        <div class="links">
+          <span class="field__label">Profile links (ORCID, OpenAlex, GitHub)</span>
+          <div id="links"></div>
+          <button id="add-link" class="button button--small" type="button">+ Add link</button>
+        </div>
 
         <div class="intensity" role="radiogroup" aria-label="${copy.intensityLabel}">
           <span class="field__label">${copy.intensityLabel}</span>
@@ -126,6 +133,14 @@ export function mountApp(root: HTMLElement): void {
     })
   }
 
+  // Profile links: a row per identifier/URL, with a "+ Add link" control.
+  const linksContainer = root.querySelector<HTMLElement>('#links')
+  const addLinkBtn = root.querySelector<HTMLButtonElement>('#add-link')
+  if (linksContainer && addLinkBtn) {
+    addLinkRow(linksContainer)
+    addLinkBtn.addEventListener('click', () => addLinkRow(linksContainer))
+  }
+
   // Share / export controls (revealed once a roast exists).
   const copyBtn = root.querySelector<HTMLButtonElement>('#share-copy')
   const textBtn = root.querySelector<HTMLButtonElement>('#share-text')
@@ -203,6 +218,76 @@ function appendToInput(textarea: HTMLTextAreaElement, text: string): void {
   textarea.value = existing ? `${existing}\n\n${trimmed}` : trimmed
 }
 
+function addLinkRow(container: HTMLElement): void {
+  const row = document.createElement('div')
+  row.className = 'link-row'
+
+  const input = document.createElement('input')
+  input.type = 'url'
+  input.className = 'field__input link-row__input'
+  input.placeholder = 'ORCID iD, or an orcid.org / openalex.org / github.com link'
+
+  const status = document.createElement('span')
+  status.className = 'link-row__status'
+
+  const remove = document.createElement('button')
+  remove.type = 'button'
+  remove.className = 'link-row__remove'
+  remove.setAttribute('aria-label', 'Remove link')
+  remove.textContent = '×'
+  remove.addEventListener('click', () => row.remove())
+
+  const reason = document.createElement('small')
+  reason.className = 'link-row__reason'
+
+  const top = document.createElement('div')
+  top.className = 'link-row__top'
+  top.append(input, status, remove)
+  row.append(top, reason)
+  container.appendChild(row)
+}
+
+// Validate each non-empty link row by retrieving it via the Worker, marking the
+// row with a tick or a cross + reason. Returns the retrieved texts.
+async function validateLinks(root: HTMLElement, sources: Set<string>): Promise<string[]> {
+  const texts: string[] = []
+  for (const row of Array.from(root.querySelectorAll<HTMLElement>('.link-row'))) {
+    const input = row.querySelector<HTMLInputElement>('.link-row__input')
+    const status = row.querySelector<HTMLElement>('.link-row__status')
+    const reason = row.querySelector<HTMLElement>('.link-row__reason')
+    if (!input || !status || !reason) continue
+
+    status.textContent = ''
+    reason.textContent = ''
+    row.classList.remove('link-row--ok', 'link-row--fail')
+    const value = input.value.trim()
+    if (!value) continue
+
+    const detected = detectSource(value)
+    if (!detected) {
+      status.textContent = '✗'
+      row.classList.add('link-row--fail')
+      reason.textContent =
+        'Not a supported link (ORCID, OpenAlex, or GitHub). Paste the text instead.'
+      continue
+    }
+
+    status.textContent = '…'
+    const result = await retrieveSource(config.workerUrl, detected.source, detected.id)
+    if (result.ok && result.text) {
+      status.textContent = '✓'
+      row.classList.add('link-row--ok')
+      texts.push(result.text)
+      sources.add(`${detected.source}: ${detected.id}`)
+    } else {
+      status.textContent = '✗'
+      row.classList.add('link-row--fail')
+      reason.textContent = result.reason ?? 'Could not retrieve this link.'
+    }
+  }
+  return texts
+}
+
 function setOutput(output: HTMLElement, text: string): void {
   output.textContent = text
 }
@@ -247,24 +332,34 @@ async function runRoast(
   button: HTMLButtonElement,
   sources: Set<string>,
 ): Promise<void> {
-  const profile = textarea.value.trim()
-  if (!profile) {
-    setOutput(output, 'Paste some profile text first.')
-    return
-  }
-  if (profile.length > config.maxInputChars) {
-    setOutput(output, `That is longer than ${config.maxInputChars} characters. Trim it down.`)
-    return
-  }
   if (!config.workerUrl) {
     setOutput(output, 'Roasting is not configured in this build yet (no Worker URL).')
     return
   }
 
   button.disabled = true
-  setOutput(output, 'Roasting…')
   root.querySelector('#share')?.setAttribute('hidden', '')
   root.querySelector('#personalia')?.setAttribute('hidden', '')
+  setOutput(output, 'Checking links…')
+
+  // Validate any profile links first (retrieving each via the Worker), then
+  // combine the pasted/uploaded text with the retrieved text.
+  const linkTexts = await validateLinks(root, sources)
+  const profile = [textarea.value.trim(), ...linkTexts]
+    .filter(Boolean)
+    .join('\n\n')
+    .trim()
+  if (!profile) {
+    setOutput(output, 'Paste some text, upload a file, or add a valid link first.')
+    button.disabled = false
+    return
+  }
+  if (profile.length > config.maxInputChars) {
+    setOutput(output, `That is longer than ${config.maxInputChars} characters. Trim it down.`)
+    button.disabled = false
+    return
+  }
+  setOutput(output, 'Roasting…')
 
   try {
     const response = await fetch(config.workerUrl, {
