@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.6 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
+**Version:** 1.7 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -371,6 +371,12 @@ header is never shown. Where the model cannot determine a field it returns null,
 and the box shows "unknown". The input sources are tracked by the front end from
 what the user supplied.
 
+Below the roast, a stats card shows basic bibliometrics for any source that
+returned them (currently OpenAlex: publications, citations, h-index, i10-index,
+g-index, mean citations). The card is structured data returned by the Worker
+alongside the retrieved text — not parsed out of the roast — and is hidden when no
+source provided stats.
+
 ### Sharing and export
 
 Sharing is entirely client-side. The interface offers copy-to-clipboard, download
@@ -437,6 +443,11 @@ scraping:
   without a key (a `mailto` is polite but optional). It is therefore called from
   the Worker keyless by default; an optional `OPENALEX_API_KEY` secret is sent
   when present, to raise limits. The exact free allowance is re-verified at build.
+  Retrieval folds the top works' metadata — title, year, venue and a reconstructed
+  abstract (from `abstract_inverted_index`, truncated) — into the roast input so
+  the model has concrete material, and returns the basic bibliometrics as
+  structured stats for the card. Abstracts are pulled only for the few top works
+  (the bulky field), while a leaner larger fetch feeds the metrics.
 - **GitHub** — the public REST API (profile, repos, languages) is CORS-enabled
   and usable, with a 60-requests/hour unauthenticated limit per IP; useful for
   technically active researchers.

@@ -56,6 +56,30 @@ export function meanCitations(works: Work[]): number {
   return works.length ? totalCitations(works) / works.length : 0
 }
 
+export interface Metrics {
+  count: number
+  total: number
+  h: number
+  g: number
+  i10: number
+  h5: number
+  mean: number
+}
+
+// All metrics in one pass, for callers that need the numbers (e.g. a stats card)
+// rather than the text summary.
+export function computeMetrics(works: Work[], currentYear: number): Metrics {
+  return {
+    count: works.length,
+    total: totalCitations(works),
+    h: hIndex(works),
+    g: gIndex(works),
+    i10: i10Index(works),
+    h5: h5Index(works, currentYear),
+    mean: meanCitations(works),
+  }
+}
+
 // A compact, labelled metrics block, or null when there are no works to measure.
 // h5 is omitted when no work carries a year, so no number is invented.
 export function metricsSummary(works: Work[], currentYear: number): string | null {

@@ -4,7 +4,7 @@
 // system prompt. It streams the roast (004) and enforces a per-IP daily limit
 // via Workers KV (005). See the specification, Architecture → The Worker.
 
-import { metricsSummary } from './metrics'
+import { metricsSummary, computeMetrics } from './metrics'
 import { continentOf } from './geo'
 
 // Minimal shape of the Workers KV binding we use (avoids a full
@@ -504,6 +504,67 @@ async function openalexEnrichment(
   return lines
 }
 
+// Reconstruct an abstract from OpenAlex's inverted index ({ word: [positions] }).
+function abstractFromInvertedIndex(
+  idx: Record<string, number[]> | null | undefined,
+): string {
+  if (!idx) return ''
+  const words: string[] = []
+  for (const [word, positions] of Object.entries(idx)) {
+    for (const p of positions) words[p] = word
+  }
+  return words.filter((w) => w !== undefined).join(' ').trim()
+}
+
+interface OpenAlexRichWork {
+  title: string
+  year: number | null
+  citations: number
+  venue: string
+  abstract: string
+}
+
+// Top works with venue and abstract, for the detailed roast material. Kept small
+// (the lean 200-work fetch feeds the metrics); abstracts are the bulky field, so
+// only these few are pulled with them.
+async function openalexTopWorks(
+  id: string,
+  env: Env,
+  headers: Record<string, string>,
+  limit: number,
+): Promise<OpenAlexRichWork[]> {
+  try {
+    const res = await fetch(
+      openalexUrl('works', env, {
+        filter: `author.id:${id}`,
+        'per-page': String(limit),
+        sort: 'cited_by_count:desc',
+        select: 'title,publication_year,cited_by_count,primary_location,abstract_inverted_index',
+      }),
+      { headers },
+    )
+    if (!res.ok) return []
+    const data = (await res.json()) as {
+      results?: Array<{
+        title?: string
+        publication_year?: number
+        cited_by_count?: number
+        primary_location?: { source?: { display_name?: string } | null } | null
+        abstract_inverted_index?: Record<string, number[]>
+      }>
+    }
+    return (data.results ?? []).map((w) => ({
+      title: w.title ?? '',
+      year: w.publication_year ?? null,
+      citations: w.cited_by_count ?? 0,
+      venue: w.primary_location?.source?.display_name ?? '',
+      abstract: abstractFromInvertedIndex(w.abstract_inverted_index),
+    }))
+  } catch {
+    return []
+  }
+}
+
 async function retrieveOpenalex(
   input: string,
   env: Env,
@@ -591,16 +652,46 @@ async function retrieveOpenalex(
   // Open-access breakdown and collaboration geography (019).
   for (const line of await openalexEnrichment(id, env, headers)) lines.push(line)
 
-  const topWorks = works.filter((w) => w.title).slice(0, 15)
+  // Detailed top works (venue + abstract) give the model concrete material —
+  // titles, where they appeared, and what they were about — to roast.
+  const ABSTRACT_CHARS = 320
+  const topWorks = (await openalexTopWorks(id, env, headers, 8)).filter((w) => w.title)
   if (topWorks.length) {
     lines.push('Most-cited works:')
     for (const w of topWorks) {
-      const year = w.year ? `, ${w.year}` : ''
-      lines.push(`- ${w.title}${year} (cited ${w.citations})`)
+      const meta = [w.year, w.venue].filter(Boolean).join(', ')
+      lines.push(`- "${w.title}"${meta ? ` (${meta})` : ''} — cited ${w.citations}`)
+      if (w.abstract) {
+        const a =
+          w.abstract.length > ABSTRACT_CHARS
+            ? `${w.abstract.slice(0, ABSTRACT_CHARS)}…`
+            : w.abstract
+        lines.push(`  Abstract: ${a}`)
+      }
     }
   }
 
-  return new Response(JSON.stringify({ text: lines.join('\n') }), {
+  // Structured basic stats for the front-end card. Authoritative author totals
+  // where available; g-index is computed from the works list.
+  const m = computeMetrics(works, new Date().getUTCFullYear())
+  const meanPerPaper =
+    author.works_count && author.cited_by_count != null
+      ? author.cited_by_count / author.works_count
+      : m.mean
+  const stats = {
+    source: 'openalex',
+    title: `${author.display_name ?? id} — OpenAlex`,
+    entries: [
+      { label: 'Publications', value: String(author.works_count ?? m.count) },
+      { label: 'Citations', value: String(author.cited_by_count ?? m.total) },
+      { label: 'h-index', value: String(author.summary_stats?.h_index ?? m.h) },
+      { label: 'i10-index', value: String(author.summary_stats?.i10_index ?? m.i10) },
+      { label: 'g-index', value: String(m.g) },
+      { label: 'Mean citations', value: meanPerPaper.toFixed(1) },
+    ],
+  }
+
+  return new Response(JSON.stringify({ text: lines.join('\n'), stats }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
   })

@@ -7,6 +7,7 @@ import {
   searchSource,
   type SourceKind,
   type Candidate,
+  type SourceStats,
 } from './sources'
 
 // Builds the static shell and wires the roast request to the Worker (streamed,
@@ -79,6 +80,7 @@ export function mountApp(root: HTMLElement): void {
         <div id="roast-output" class="output" aria-live="polite">
           <p class="output__placeholder">${copy.outputPlaceholder}</p>
         </div>
+        <div id="stats-card" class="stats-card" hidden></div>
         <div id="share" class="share" hidden>
           <button id="share-copy" class="button button--small" type="button">Copy</button>
           <button id="share-text" class="button button--small" type="button">Download .txt</button>
@@ -363,9 +365,14 @@ async function doSearch(
 }
 
 // Validate each non-empty link row by retrieving it via the Worker, marking the
-// row with a tick or a cross + reason. Returns the retrieved texts.
-async function validateLinks(root: HTMLElement, sources: Set<string>): Promise<string[]> {
+// row with a tick or a cross + reason. Returns the retrieved texts and any
+// structured stats the sources provided (for the stats card).
+async function validateLinks(
+  root: HTMLElement,
+  sources: Set<string>,
+): Promise<{ texts: string[]; stats: SourceStats[] }> {
   const texts: string[] = []
+  const stats: SourceStats[] = []
   for (const row of Array.from(root.querySelectorAll<HTMLElement>('.link-row'))) {
     const input = row.querySelector<HTMLInputElement>('.link-row__input')
     const status = row.querySelector<HTMLElement>('.link-row__status')
@@ -393,6 +400,7 @@ async function validateLinks(root: HTMLElement, sources: Set<string>): Promise<s
       status.textContent = '✓'
       row.classList.add('link-row--ok')
       texts.push(result.text)
+      if (result.stats) stats.push(result.stats)
       sources.add(`${detected.source}: ${detected.id}`)
     } else {
       status.textContent = '✗'
@@ -400,7 +408,7 @@ async function validateLinks(root: HTMLElement, sources: Set<string>): Promise<s
       reason.textContent = result.reason ?? 'Could not retrieve this link.'
     }
   }
-  return texts
+  return { texts, stats }
 }
 
 function setOutput(output: HTMLElement, text: string): void {
@@ -440,6 +448,39 @@ function fillPersonalia(
   root.querySelector('#personalia')?.removeAttribute('hidden')
 }
 
+// Render a card of basic stats (one block per source that provided them) below
+// the roast. Hidden when no source returned stats.
+function renderStatsCard(root: HTMLElement, stats: SourceStats[]): void {
+  const card = root.querySelector<HTMLElement>('#stats-card')
+  if (!card) return
+  card.textContent = ''
+  if (!stats.length) {
+    card.setAttribute('hidden', '')
+    return
+  }
+  for (const block of stats) {
+    const title = document.createElement('h3')
+    title.className = 'stats-card__title'
+    title.textContent = block.title
+    card.appendChild(title)
+
+    const grid = document.createElement('dl')
+    grid.className = 'stats-card__grid'
+    for (const { label, value } of block.entries) {
+      const cell = document.createElement('div')
+      cell.className = 'stats-card__cell'
+      const dt = document.createElement('dt')
+      dt.textContent = label
+      const dd = document.createElement('dd')
+      dd.textContent = value
+      cell.append(dt, dd)
+      grid.appendChild(cell)
+    }
+    card.appendChild(grid)
+  }
+  card.removeAttribute('hidden')
+}
+
 async function runRoast(
   textarea: HTMLTextAreaElement,
   root: HTMLElement,
@@ -455,11 +496,12 @@ async function runRoast(
   button.disabled = true
   root.querySelector('#share')?.setAttribute('hidden', '')
   root.querySelector('#personalia')?.setAttribute('hidden', '')
+  root.querySelector('#stats-card')?.setAttribute('hidden', '')
   setOutput(output, 'Checking links…')
 
   // Validate any profile links first (retrieving each via the Worker), then
   // combine the pasted/uploaded text with the retrieved text.
-  const linkTexts = await validateLinks(root, sources)
+  const { texts: linkTexts, stats: linkStats } = await validateLinks(root, sources)
   const profile = [textarea.value.trim(), ...linkTexts]
     .filter(Boolean)
     .join('\n\n')
@@ -588,6 +630,7 @@ async function runRoast(
     } else {
       output.textContent = roast
       root.querySelector('#personalia')?.removeAttribute('hidden')
+      renderStatsCard(root, linkStats)
       root.querySelector('#share')?.removeAttribute('hidden')
     }
   } catch {
