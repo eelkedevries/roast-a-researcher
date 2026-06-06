@@ -25,6 +25,7 @@ export interface Env {
   RATE_LIMIT: KvCounter
   GITHUB_TOKEN?: string
   ORCID_TOKEN?: string
+  OPENALEX_API_KEY?: string
 }
 
 type Intensity = 'mild' | 'medium' | 'spicy'
@@ -143,8 +144,9 @@ async function handleRetrieve(
       return retrieveGithub(id, env, allowOrigin)
     case 'orcid':
       return retrieveOrcid(id, env, allowOrigin)
+    case 'openalex':
+      return retrieveOpenalex(id, env, allowOrigin)
     default:
-      // OpenAlex is added in 010.
       return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
   }
 }
@@ -388,6 +390,125 @@ async function retrieveOrcid(
   if (titles.length) {
     lines.push('Selected works:')
     for (const t of titles) lines.push(`- ${t}`)
+  }
+
+  return new Response(JSON.stringify({ text: lines.join('\n') }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
+  })
+}
+
+// --- OpenAlex ---
+
+// Extract a canonical OpenAlex author id (e.g. A5023888391) from a bare id or an
+// openalex.org / api.openalex.org URL.
+function parseOpenalexId(input: string): string | null {
+  const match = input.trim().match(/A\d{5,}/i)
+  return match ? `A${match[0].slice(1)}` : null
+}
+
+// Build an OpenAlex API URL, appending the API key only when one is configured.
+// OpenAlex answers author lookups without a key (verified 2026-06-06); the key
+// only raises rate limits.
+function openalexUrl(path: string, env: Env, params: Record<string, string> = {}): string {
+  const url = new URL(`https://api.openalex.org/${path}`)
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
+  if (env.OPENALEX_API_KEY) url.searchParams.set('api_key', env.OPENALEX_API_KEY)
+  return url.toString()
+}
+
+interface OpenAlexWork {
+  citations: number
+  year: number | null
+  title: string
+}
+
+async function retrieveOpenalex(
+  input: string,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
+  const id = parseOpenalexId(input)
+  if (!id) {
+    return jsonError(
+      'invalid_identifier',
+      'That is not a valid OpenAlex author ID or URL.',
+      400,
+      allowOrigin,
+    )
+  }
+
+  const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
+
+  let authorRes: Response
+  try {
+    authorRes = await fetch(openalexUrl(`authors/${id}`, env), { headers })
+  } catch {
+    return jsonError('source_error', 'Could not reach OpenAlex.', 502, allowOrigin)
+  }
+  if (authorRes.status === 404) {
+    return jsonError('not_found', 'No OpenAlex author with that ID.', 404, allowOrigin)
+  }
+  if (!authorRes.ok) {
+    return jsonError('source_error', 'OpenAlex returned an error.', 502, allowOrigin)
+  }
+
+  const author = (await authorRes.json()) as {
+    display_name?: string
+    works_count?: number
+    cited_by_count?: number
+    summary_stats?: { h_index?: number; i10_index?: number }
+    last_known_institutions?: Array<{ display_name?: string }>
+    affiliations?: Array<{ institution?: { display_name?: string } }>
+  }
+
+  // Works, most-cited first, carrying per-paper citations and year for the
+  // metrics computation (016) and enrichment (019).
+  let works: OpenAlexWork[] = []
+  try {
+    const worksRes = await fetch(
+      openalexUrl('works', env, {
+        filter: `author.id:${id}`,
+        'per-page': '200',
+        sort: 'cited_by_count:desc',
+        select: 'title,publication_year,cited_by_count',
+      }),
+      { headers },
+    )
+    if (worksRes.ok) {
+      const data = (await worksRes.json()) as {
+        results?: Array<{ title?: string; publication_year?: number; cited_by_count?: number }>
+      }
+      works = (data.results ?? []).map((w) => ({
+        citations: w.cited_by_count ?? 0,
+        year: w.publication_year ?? null,
+        title: w.title ?? '',
+      }))
+    }
+  } catch {
+    // Works are optional; metrics simply degrade when absent.
+  }
+
+  const affiliation =
+    author.last_known_institutions?.[0]?.display_name ??
+    author.affiliations?.[0]?.institution?.display_name
+
+  const lines: string[] = [`OpenAlex: ${author.display_name ?? id} (${id})`]
+  if (affiliation) lines.push(`Affiliation: ${affiliation}`)
+  // cited_by_count is total citations, not an h-index; the two are distinct fields.
+  lines.push(
+    `Works: ${author.works_count ?? 0}; total citations: ${author.cited_by_count ?? 0}; ` +
+      `h-index: ${author.summary_stats?.h_index ?? 'n/a'}; ` +
+      `i10-index: ${author.summary_stats?.i10_index ?? 'n/a'}`,
+  )
+
+  const topWorks = works.filter((w) => w.title).slice(0, 15)
+  if (topWorks.length) {
+    lines.push('Most-cited works:')
+    for (const w of topWorks) {
+      const year = w.year ? `, ${w.year}` : ''
+      lines.push(`- ${w.title}${year} (cited ${w.citations})`)
+    }
   }
 
   return new Response(JSON.stringify({ text: lines.join('\n') }), {
