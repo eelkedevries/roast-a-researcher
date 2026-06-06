@@ -19,28 +19,29 @@ export function mountApp(root: HTMLElement): void {
           placeholder="${copy.inputPlaceholder}"></textarea>
         <p class="field__counter"><span id="char-count">0</span> / ${config.maxInputChars}</p>
 
-        <p class="field__upload">
-          <input id="file" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" />
-          <button id="upload" class="button button--small" type="button">Upload</button>
-          <span class="field__hint">…or drop files onto the box above. Supported:
-            .txt, .md, .pdf, .docx, .odt.</span>
-        </p>
+        <div id="dropzone" class="dropzone">
+          <input id="file" class="dropzone__input" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" />
+          <button id="choose" class="button button--small" type="button">Choose files</button>
+          <span class="dropzone__hint">or drag &amp; drop — .txt, .md, .pdf, .docx, .odt</span>
+        </div>
         <ul id="file-list" class="file-list"></ul>
 
-        <fieldset class="intensity">
-          <legend class="field__label">${copy.intensityLabel}</legend>
-          ${intensityLevels
-            .map(
-              (level) => `
-          <label class="intensity__option">
-            <input type="radio" name="intensity" value="${level}"
-              ${level === config.defaultIntensity ? 'checked' : ''} />
-            <span>${level}</span>
-          </label>`,
-            )
-            .join('')}
+        <div class="intensity" role="radiogroup" aria-label="${copy.intensityLabel}">
+          <span class="field__label">${copy.intensityLabel}</span>
+          <div class="segmented">
+            ${intensityLevels
+              .map(
+                (level) => `
+            <label class="segmented__option">
+              <input type="radio" name="intensity" value="${level}"
+                ${level === config.defaultIntensity ? 'checked' : ''} />
+              <span>${level}</span>
+            </label>`,
+              )
+              .join('')}
+          </div>
           <p class="field__hint">${copy.intensityHint}</p>
-        </fieldset>
+        </div>
 
         <button id="roast" class="button" type="button">${copy.roastButton}</button>
       </section>
@@ -88,21 +89,29 @@ export function mountApp(root: HTMLElement): void {
     })
   }
 
-  // File upload and drag-drop: extract text client-side into the editable field.
-  // Multiple files are supported; each is listed with a tick or a cross + reason.
+  // File upload: a "Choose files" button + drag-and-drop dropzone. Files are
+  // processed on select/drop and listed as chips with a tick or a cross + reason.
   const fileInput = root.querySelector<HTMLInputElement>('#file')
-  const uploadBtn = root.querySelector<HTMLButtonElement>('#upload')
+  const chooseBtn = root.querySelector<HTMLButtonElement>('#choose')
+  const dropzone = root.querySelector<HTMLElement>('#dropzone')
   const fileList = root.querySelector<HTMLUListElement>('#file-list')
-  if (fileInput && uploadBtn && fileList && textarea && counter) {
-    uploadBtn.addEventListener('click', () => {
+  if (fileInput && chooseBtn && dropzone && fileList && textarea && counter) {
+    chooseBtn.addEventListener('click', () => fileInput.click())
+    fileInput.addEventListener('change', () => {
       const files = Array.from(fileInput.files ?? [])
       if (files.length) void processFiles(files, textarea, counter, fileList)
+      fileInput.value = ''
     })
-    textarea.addEventListener('dragover', (e) => {
+    dropzone.addEventListener('dragover', (e) => {
       e.preventDefault()
+      dropzone.classList.add('dropzone--over')
     })
-    textarea.addEventListener('drop', (e) => {
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('dropzone--over')
+    })
+    dropzone.addEventListener('drop', (e) => {
       e.preventDefault()
+      dropzone.classList.remove('dropzone--over')
       const files = Array.from(e.dataTransfer?.files ?? [])
       if (files.length) void processFiles(files, textarea, counter, fileList)
     })
@@ -135,18 +144,31 @@ async function processFiles(
   counter: HTMLElement,
   list: HTMLElement,
 ): Promise<void> {
-  list.replaceChildren()
   for (const file of files) {
     const item = document.createElement('li')
     item.className = 'file-list__item'
-    item.textContent = `… ${file.name}`
+
+    const status = document.createElement('span')
+    status.className = 'file-list__status'
+    status.textContent = '…'
+    const name = document.createElement('span')
+    name.className = 'file-list__name'
+    name.textContent = file.name
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'file-list__remove'
+    remove.setAttribute('aria-label', `Remove ${file.name}`)
+    remove.textContent = '×'
+    remove.addEventListener('click', () => item.remove())
+    item.append(status, name, remove)
     list.appendChild(item)
+
     try {
       appendToInput(textarea, await extractText(file))
-      item.textContent = `✓ ${file.name}`
+      status.textContent = '✓'
       item.classList.add('file-list__item--ok')
     } catch (err) {
-      item.textContent = `✗ ${file.name}`
+      status.textContent = '✗'
       item.classList.add('file-list__item--fail')
       const reason = document.createElement('small')
       reason.className = 'file-list__reason'
