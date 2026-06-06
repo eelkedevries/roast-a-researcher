@@ -37,11 +37,20 @@ export interface SourceStats {
   entries: Array<{ label: string; value: string }>
 }
 
+export interface ChartData {
+  worksPerYear?: Array<{ year: number; value: number }>
+  citationsPerYear?: Array<{ year: number; value: number }>
+  openAccess?: Array<{ status: string; count: number }>
+  topCountries?: Array<{ country: string; count: number }>
+  topVenues?: Array<{ venue: string; count: number }>
+}
+
 export interface RetrieveResult {
   ok: boolean
   text?: string
   reason?: string
   stats?: SourceStats
+  charts?: ChartData
 }
 
 export interface Candidate {
@@ -94,9 +103,11 @@ export async function retrieveSource(
       body: JSON.stringify({ source, id }),
     })
     const data = (await response.json().catch(() => null)) as
-      | { text?: string; stats?: SourceStats; error?: string; message?: string }
+      | { text?: string; stats?: SourceStats; charts?: ChartData; error?: string; message?: string }
       | null
-    if (response.ok && data?.text) return { ok: true, text: data.text, stats: data.stats }
+    if (response.ok && data?.text) {
+      return { ok: true, text: data.text, stats: data.stats, charts: data.charts }
+    }
     return { ok: false, reason: data?.message ?? 'Could not retrieve this link.' }
   } catch {
     return { ok: false, reason: 'Network error retrieving this link.' }

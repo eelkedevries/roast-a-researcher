@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.8 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
+**Version:** 1.9 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -376,6 +376,15 @@ returned them (currently OpenAlex: publications, citations, h-index, i10-index,
 g-index, mean citations). The card is structured data returned by the Worker
 alongside the retrieved text — not parsed out of the roast — and is hidden when no
 source provided stats.
+
+Beneath the stats card, simple charts visualise the same retrieved data
+(publications and citations per year, the open-access breakdown, and top co-author
+countries), driven by a structured `charts` payload the Worker returns. Earlier
+phases excluded visualisation; it is now in scope, but kept deliberately minimal:
+client-side inline SVG with no charting dependency and no secret, each chart
+carrying an accessible label and a data-table fallback. Charts are an on-page
+presentation only — they are not part of the client-side sharing/export (still
+copy, text, and a single rendered image) and nothing is stored.
 
 ### Sharing and export
 

@@ -430,6 +430,59 @@ body {
   font-weight: 600;
 }
 
+.charts-card {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+
+.chart {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #1e1e1e;
+}
+
+.chart__title {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.chart__svg {
+  display: block;
+}
+
+.chart__label,
+.chart__value {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart__bar {
+  fill: var(--accent);
+}
+
+.chart__data {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.chart__data table {
+  border-collapse: collapse;
+  margin-top: 0.3rem;
+}
+
+.chart__data th,
+.chart__data td {
+  text-align: left;
+  padding: 0.1rem 0.6rem 0.1rem 0;
+  font-weight: 400;
+}
+
 .app__footer {
   margin-top: 1.5rem;
 }

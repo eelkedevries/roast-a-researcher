@@ -8,7 +8,9 @@ import {
   type SourceKind,
   type Candidate,
   type SourceStats,
+  type ChartData,
 } from './sources'
+import { renderCharts } from './charts'
 
 // Builds the static shell and wires the roast request to the Worker (streamed,
 // with a typing effect), multi-file upload, and sharing.
@@ -81,6 +83,7 @@ export function mountApp(root: HTMLElement): void {
           <p class="output__placeholder">${copy.outputPlaceholder}</p>
         </div>
         <div id="stats-card" class="stats-card" hidden></div>
+        <div id="charts-card" class="charts-card" hidden></div>
         <div id="share" class="share" hidden>
           <button id="share-copy" class="button button--small" type="button">Copy</button>
           <button id="share-text" class="button button--small" type="button">Download .txt</button>
@@ -370,9 +373,10 @@ async function doSearch(
 async function validateLinks(
   root: HTMLElement,
   sources: Set<string>,
-): Promise<{ texts: string[]; stats: SourceStats[] }> {
+): Promise<{ texts: string[]; stats: SourceStats[]; charts: ChartData[] }> {
   const texts: string[] = []
   const stats: SourceStats[] = []
+  const charts: ChartData[] = []
   for (const row of Array.from(root.querySelectorAll<HTMLElement>('.link-row'))) {
     const input = row.querySelector<HTMLInputElement>('.link-row__input')
     const status = row.querySelector<HTMLElement>('.link-row__status')
@@ -401,6 +405,7 @@ async function validateLinks(
       row.classList.add('link-row--ok')
       texts.push(result.text)
       if (result.stats) stats.push(result.stats)
+      if (result.charts) charts.push(result.charts)
       sources.add(`${detected.source}: ${detected.id}`)
     } else {
       status.textContent = '✗'
@@ -408,7 +413,7 @@ async function validateLinks(
       reason.textContent = result.reason ?? 'Could not retrieve this link.'
     }
   }
-  return { texts, stats }
+  return { texts, stats, charts }
 }
 
 function setOutput(output: HTMLElement, text: string): void {
@@ -497,11 +502,15 @@ async function runRoast(
   root.querySelector('#share')?.setAttribute('hidden', '')
   root.querySelector('#personalia')?.setAttribute('hidden', '')
   root.querySelector('#stats-card')?.setAttribute('hidden', '')
+  root.querySelector('#charts-card')?.setAttribute('hidden', '')
   setOutput(output, 'Checking links…')
 
   // Validate any profile links first (retrieving each via the Worker), then
   // combine the pasted/uploaded text with the retrieved text.
-  const { texts: linkTexts, stats: linkStats } = await validateLinks(root, sources)
+  const { texts: linkTexts, stats: linkStats, charts: linkCharts } = await validateLinks(
+    root,
+    sources,
+  )
   const profile = [textarea.value.trim(), ...linkTexts]
     .filter(Boolean)
     .join('\n\n')
@@ -631,6 +640,8 @@ async function runRoast(
       output.textContent = roast
       root.querySelector('#personalia')?.removeAttribute('hidden')
       renderStatsCard(root, linkStats)
+      const chartsCard = root.querySelector<HTMLElement>('#charts-card')
+      if (chartsCard) renderCharts(chartsCard, linkCharts)
       root.querySelector('#share')?.removeAttribute('hidden')
     }
   } catch {
