@@ -1,14 +1,28 @@
 // Cloudflare Worker: a thin, OpenAI-compatible proxy that turns supplied profile
 // text into a comedic roast via OpenRouter. It holds the API key as a secret and
 // carries the content rules in a fixed, server-side system prompt. This is the
-// non-streaming version (prompt 003); streaming (004) and rate limiting (005)
-// are added later. See the specification, Architecture → The Worker.
+// system prompt. It streams the roast (004) and enforces a per-IP daily limit
+// via Workers KV (005). See the specification, Architecture → The Worker.
+
+// Minimal shape of the Workers KV binding we use (avoids a full
+// @cloudflare/workers-types dependency for a single counter).
+interface KvCounter {
+  get(key: string): Promise<string | null>
+  put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number },
+  ): Promise<void>
+}
 
 export interface Env {
   ALLOW_ORIGIN: string
   MODEL_ALLOWLIST: string
   MAX_INPUT_CHARS: string
+  DAILY_LIMIT: string
   OPENROUTER_API_KEY: string
+  IP_HASH_SALT: string
+  RATE_LIMIT: KvCounter
 }
 
 type Intensity = 'mild' | 'medium' | 'spicy'
@@ -16,6 +30,26 @@ const INTENSITIES: readonly Intensity[] = ['mild', 'medium', 'spicy']
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const MAX_OUTPUT_TOKENS = 500
+
+// --- rate-limiting helpers ---
+
+async function hashIp(ip: string, salt: string): Promise<string> {
+  const data = new TextEncoder().encode(salt + ip)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+function utcDate(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function secondsUntilEndOfUtcDay(): number {
+  const now = new Date()
+  const end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
+  return Math.max(60, Math.ceil((end - now.getTime()) / 1000))
+}
 
 function corsHeaders(origin: string): Record<string, string> {
   return {
@@ -129,6 +163,28 @@ export default {
     const model = requestedModel || allowlist[0]
     if (!model || !allowlist.includes(model)) {
       return jsonError('bad_model', 'Requested model is not allowed.', 400, allowOrigin)
+    }
+
+    // Per-IP daily rate limit. The client IP is taken only from CF-Connecting-IP
+    // (Cloudflare sets it at the edge); X-Forwarded-For is never trusted. The IP
+    // is hashed with a salt before use, so no raw IP is stored; the counter
+    // resets daily via the KV TTL.
+    const clientIp = request.headers.get('CF-Connecting-IP') ?? ''
+    if (clientIp) {
+      const dailyLimit = Number(env.DAILY_LIMIT) || 10
+      const key = `rl:${utcDate()}:${await hashIp(clientIp, env.IP_HASH_SALT)}`
+      const used = Number((await env.RATE_LIMIT.get(key)) ?? '0')
+      if (used >= dailyLimit) {
+        return jsonError(
+          'rate_limited',
+          'Daily roast limit reached. Please try again tomorrow.',
+          429,
+          allowOrigin,
+        )
+      }
+      await env.RATE_LIMIT.put(key, String(used + 1), {
+        expirationTtl: secondsUntilEndOfUtcDay(),
+      })
     }
 
     const upstreamBody = {

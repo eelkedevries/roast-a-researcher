@@ -9,3 +9,9 @@ compatibility_date = "2026-06-05"
 ALLOW_ORIGIN = "https://eelkedevries.github.io"
 MODEL_ALLOWLIST = "google/gemini-2.5-flash-lite"
 MAX_INPUT_CHARS = "12000"
+DAILY_LIMIT = "10"
+
+# Per-IP daily rate-limit counter (key: rl:<UTC-date>:<hashed-ip>, TTL = end of day).
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "dd12e320b09a4210a53114a0c9a1ef59"
