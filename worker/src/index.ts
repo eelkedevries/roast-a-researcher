@@ -476,6 +476,7 @@ function meanFwci(works: OpenAlexWork[]): number | null {
 interface OpenAlexGroup {
   key: string
   count: number
+  display: string
 }
 
 // Fetch an OpenAlex group_by aggregation over an author's works, or null on any
@@ -493,9 +494,13 @@ async function openalexGroupBy(
     )
     if (!res.ok) return null
     const data = (await res.json()) as {
-      group_by?: Array<{ key?: string; count?: number }>
+      group_by?: Array<{ key?: string; count?: number; key_display_name?: string }>
     }
-    return (data.group_by ?? []).map((g) => ({ key: g.key ?? '', count: g.count ?? 0 }))
+    return (data.group_by ?? []).map((g) => ({
+      key: g.key ?? '',
+      count: g.count ?? 0,
+      display: g.key_display_name ?? g.key ?? '',
+    }))
   } catch {
     return null
   }
@@ -664,7 +669,11 @@ async function openalexPIndex(
       )
       if (!res.ok) continue
       const data = (await res.json()) as { group_by?: Array<{ key?: string; count?: number }> }
-      const groups = (data.group_by ?? []).map((g) => ({ key: g.key ?? '', count: g.count ?? 0 }))
+      const groups = (data.group_by ?? []).map((g) => ({
+        key: g.key ?? '',
+        count: g.count ?? 0,
+        display: '',
+      }))
       const p = percentileInDistribution(w.citations, groups)
       if (p != null) percentiles.push(p)
     } catch {
@@ -777,6 +786,49 @@ async function openalexCoauthors(
   }
 }
 
+// Chart-ready series (025): per-year publications/citations from the author's
+// counts_by_year, plus open-access, country and venue breakdowns from group_by
+// aggregations. Only non-empty series are included.
+async function openalexChartData(
+  id: string,
+  countsByYear: Array<{ year?: number; works_count?: number; cited_by_count?: number }>,
+  env: Env,
+  headers: Record<string, string>,
+): Promise<Record<string, unknown> | undefined> {
+  const charts: Record<string, unknown> = {}
+
+  const years = [...countsByYear]
+    .filter((c) => c.year != null)
+    .sort((a, b) => (a.year ?? 0) - (b.year ?? 0))
+  const worksPerYear = years.map((c) => ({ year: c.year, value: c.works_count ?? 0 }))
+  const citationsPerYear = years.map((c) => ({ year: c.year, value: c.cited_by_count ?? 0 }))
+  if (worksPerYear.length) charts.worksPerYear = worksPerYear
+  if (citationsPerYear.length) charts.citationsPerYear = citationsPerYear
+
+  const oa = await openalexGroupBy(id, 'open_access.oa_status', env, headers)
+  if (oa && oa.length) {
+    charts.openAccess = oa.map((g) => ({ status: g.key, count: g.count }))
+  }
+
+  const countries = await openalexGroupBy(id, 'institutions.country_code', env, headers)
+  if (countries && countries.length) {
+    charts.topCountries = countries
+      .filter((g) => /^[A-Za-z]{2}$/.test(g.key))
+      .slice(0, 10)
+      .map((g) => ({ country: g.display || g.key, count: g.count }))
+  }
+
+  const venues = await openalexGroupBy(id, 'primary_location.source.id', env, headers)
+  if (venues && venues.length) {
+    charts.topVenues = venues
+      .filter((g) => g.key && g.display && g.key !== 'unknown')
+      .slice(0, 10)
+      .map((g) => ({ venue: g.display, count: g.count }))
+  }
+
+  return Object.keys(charts).length ? charts : undefined
+}
+
 async function retrieveOpenalex(
   input: string,
   env: Env,
@@ -814,6 +866,7 @@ async function retrieveOpenalex(
     summary_stats?: { h_index?: number; i10_index?: number }
     last_known_institutions?: Array<{ display_name?: string }>
     affiliations?: Array<{ institution?: { display_name?: string } }>
+    counts_by_year?: Array<{ year?: number; works_count?: number; cited_by_count?: number }>
   }
 
   // Works, most-cited first, carrying per-paper citations and year for the
@@ -959,7 +1012,10 @@ async function retrieveOpenalex(
     ],
   }
 
-  return new Response(JSON.stringify({ text: lines.join('\n'), stats }), {
+  // Structured, chart-ready series for the front-end plots (025).
+  const charts = await openalexChartData(id, author.counts_by_year ?? [], env, headers)
+
+  return new Response(JSON.stringify({ text: lines.join('\n'), stats, charts }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
   })
