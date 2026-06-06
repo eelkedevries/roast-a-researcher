@@ -23,6 +23,7 @@ export interface Env {
   OPENROUTER_API_KEY: string
   IP_HASH_SALT: string
   RATE_LIMIT: KvCounter
+  GITHUB_TOKEN?: string
 }
 
 type Intensity = 'mild' | 'medium' | 'spicy'
@@ -106,6 +107,137 @@ function buildSystemPrompt(intensity: Intensity): string {
   ].join('\n')
 }
 
+// --- structured-source retrieval (/retrieve) ---
+
+async function handleRetrieve(
+  request: Request,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
+  if (request.method !== 'POST') {
+    return jsonError('method_not_allowed', 'Use POST.', 405, allowOrigin)
+  }
+  if (!(request.headers.get('Content-Type') ?? '').includes('application/json')) {
+    return jsonError('bad_request', 'Expected application/json.', 400, allowOrigin)
+  }
+  let payload: unknown
+  try {
+    payload = await request.json()
+  } catch {
+    return jsonError('bad_request', 'Body is not valid JSON.', 400, allowOrigin)
+  }
+  const body = payload as { source?: unknown; id?: unknown }
+  const source = typeof body.source === 'string' ? body.source : ''
+  const id = typeof body.id === 'string' ? body.id.trim() : ''
+  if (!id) {
+    return jsonError('bad_request', 'No identifier supplied.', 400, allowOrigin)
+  }
+  switch (source) {
+    case 'github':
+      return retrieveGithub(id, env, allowOrigin)
+    default:
+      // ORCID and OpenAlex are added in 009/010.
+      return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
+  }
+}
+
+function parseGithubUsername(input: string): string | null {
+  let s = input.trim()
+  const match = s.match(/github\.com\/([^/?#]+)/i)
+  if (match) s = match[1]
+  s = s.replace(/^@/, '')
+  return /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,38})$/.test(s) ? s : null
+}
+
+async function retrieveGithub(
+  input: string,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
+  const username = parseGithubUsername(input)
+  if (!username) {
+    return jsonError(
+      'invalid_identifier',
+      'That is not a valid GitHub username or URL.',
+      400,
+      allowOrigin,
+    )
+  }
+
+  const headers: Record<string, string> = {
+    'User-Agent': 'roast-a-researcher',
+    Accept: 'application/vnd.github+json',
+  }
+  if (env.GITHUB_TOKEN) headers['Authorization'] = `Bearer ${env.GITHUB_TOKEN}`
+
+  let profileRes: Response
+  try {
+    profileRes = await fetch(`https://api.github.com/users/${username}`, { headers })
+  } catch {
+    return jsonError('source_error', 'Could not reach GitHub.', 502, allowOrigin)
+  }
+  if (profileRes.status === 404) {
+    return jsonError('not_found', 'No GitHub user with that name.', 404, allowOrigin)
+  }
+  if (profileRes.status === 403) {
+    return jsonError('rate_limited', 'GitHub rate limit reached. Try again later.', 429, allowOrigin)
+  }
+  if (!profileRes.ok) {
+    return jsonError('source_error', 'GitHub returned an error.', 502, allowOrigin)
+  }
+
+  const profile = (await profileRes.json()) as {
+    login?: string
+    name?: string
+    bio?: string
+    company?: string
+    blog?: string
+    location?: string
+    public_repos?: number
+    followers?: number
+  }
+
+  let repos: Array<{
+    name?: string
+    description?: string
+    language?: string
+    stargazers_count?: number
+  }> = []
+  try {
+    const reposRes = await fetch(
+      `https://api.github.com/users/${username}/repos?sort=pushed&per_page=10`,
+      { headers },
+    )
+    if (reposRes.ok) repos = (await reposRes.json()) as typeof repos
+  } catch {
+    // Repos are optional flavour.
+  }
+
+  const lines: string[] = [
+    `GitHub: ${profile.name ?? profile.login ?? username} (@${profile.login ?? username})`,
+  ]
+  if (profile.bio) lines.push(`Bio: ${profile.bio}`)
+  if (profile.company) lines.push(`Company: ${profile.company}`)
+  if (profile.location) lines.push(`Location: ${profile.location}`)
+  if (profile.blog) lines.push(`Site: ${profile.blog}`)
+  lines.push(
+    `Public repos: ${profile.public_repos ?? 0}; followers: ${profile.followers ?? 0}`,
+  )
+  if (repos.length) {
+    lines.push('Notable repositories:')
+    for (const r of repos) {
+      const lang = r.language ? `, ${r.language}` : ''
+      const stars = r.stargazers_count ? `, ★${r.stargazers_count}` : ''
+      lines.push(`- ${r.name ?? ''}${lang}${stars}${r.description ? `: ${r.description}` : ''}`)
+    }
+  }
+
+  return new Response(JSON.stringify({ text: lines.join('\n') }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
+  })
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const allowOrigin = env.ALLOW_ORIGIN
@@ -122,6 +254,11 @@ export default {
     // Origin pinning: reject anything but the configured Pages origin.
     if (requestOrigin !== allowOrigin) {
       return jsonError('forbidden_origin', 'Origin not allowed.', 403, allowOrigin)
+    }
+
+    // Structured-source retrieval (ORCID/OpenAlex/GitHub) is served on /retrieve.
+    if (new URL(request.url).pathname.endsWith('/retrieve')) {
+      return handleRetrieve(request, env, allowOrigin)
     }
 
     if (request.method !== 'POST') {

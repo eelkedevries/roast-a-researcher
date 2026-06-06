@@ -41,12 +41,12 @@ This file records what *is* (current reality). The binding design canon is `docs
   `https://eelkedevries.github.io/roast-a-researcher/`, Worker at
   `https://roast-a-researcher.eelkedevries.workers.dev` (subdomain
   `eelkedevries.workers.dev`, KV `RATE_LIMIT`).
-- Structured-source retrieval phase (spec v1.2): `013_upload_list` done
-  (multi-file upload list with per-file ✓/✗ + reason, merged into the input).
-  `009_orcid` / `010_openalex` / `011_github` (Worker retrieval) and
-  `012_source_input_panel` (the identifier/URL panel) remain — need an ORCID
-  read-public token and an OpenAlex API key (GitHub needs none) plus a Worker
-  deploy.
+- Structured-source retrieval phase (spec v1.2): `013_upload_list` and
+  `011_github` done. GitHub retrieval is live on the Worker's `/retrieve` path
+  (`{source,id}` → `{text}` / `{error,reason}`), verified end-to-end.
+- Remaining: `009_orcid` and `010_openalex` (Worker `/retrieve` cases) need an
+  ORCID read-public client and an OpenAlex API key; `012_source_input_panel` (the
+  identifier/URL input UI) depends on those two. No UI exposes `/retrieve` yet.
 - Security follow-up: the OpenRouter production key was provided over chat; rotate
   it from the machine (`wrangler secret put OPENROUTER_API_KEY`, typed privately),
   and delete the temporary Cloudflare API token.
@@ -64,3 +64,4 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 - 007_share_export.md
 - 008_privacy_and_polish.md
 - 013_upload_list.md (run ahead of 009–012, which await API keys)
+- 011_github.md (GitHub needs no key; 009/010 still await ORCID/OpenAlex keys)
