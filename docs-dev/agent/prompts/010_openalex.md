@@ -1,62 +1,64 @@
-# Task: OpenAlex enrichment (later phase)
+# Task: OpenAlex retrieval (Worker)
 
 ## Goal
 
-Add Worker-side OpenAlex enrichment (author metrics and works) with the
-now-required API key, folded into the roast input.
+Add a Worker path that retrieves an author's OpenAlex metrics and works from an
+author ID (or OpenAlex URL) and returns them as roast-ready text.
 
 ## Scope
 
-Implement only OpenAlex retrieval through the Worker. This is a later-phase
-prompt; run it after `009_orcid` or alongside identifier-based lookup. Do not
-implement other data sources.
+Implement only the Worker-side OpenAlex retrieval and its request/response
+contract. The user-facing panel is `012_source_input_panel`. Do not implement
+other sources.
 
 ## Required reading
 
-`docs-dev/reference/primary_authoritative/specification.md`: Domain rules (Later
-data sources — OpenAlex; identity on a stable identifier), Architecture
-(retrieval via the Worker; Configuration — `OPENALEX_API_KEY`).
+`docs-dev/reference/primary_authoritative/specification.md`: Domain rules (Source
+inputs and validation; Later data sources — OpenAlex), Architecture (retrieval via
+the Worker; Configuration — `OPENALEX_API_KEY`).
 
 ## Dependencies
 
-`003_worker_proxy`; ideally `009_orcid` (for an anchored identifier). The first
-version (`004`–`008`) is complete.
+`003_worker_proxy`; shares the retrieval contract introduced in `009_orcid`.
 
 ## Required changes
 
-1. Worker: call OpenAlex server-side with `OPENALEX_API_KEY` as a secret
-   (required on every request since 13 February 2026; the polite pool and
-   `mailto` were removed). Pull `works_count`, `cited_by_count`,
-   `summary_stats.h_index`/`i10_index` (distinct fields — `cited_by_count` is
-   total citations, not an h-index) and works.
-2. Verify the free allowance and whether single-entity lookups are free at build
+1. Worker: accept an OpenAlex author ID or URL and call OpenAlex server-side with
+   `OPENALEX_API_KEY` as a secret (required on every request since 13 February
+   2026; the polite pool and `mailto` were removed). Pull `works_count`,
+   `cited_by_count`, `summary_stats.h_index`/`i10_index` (distinct fields —
+   `cited_by_count` is total citations, not an h-index) and works, and assemble
+   them into text.
+2. Return `{ text }` on success or `{ error, reason }` on failure, matching the
+   `009` contract.
+3. Verify the free allowance and whether single-entity lookups are free at build
    (the docs were inconsistent at the time of writing).
-3. Front end: surface the metrics in the editable field for review before
-   roasting.
 
 ## Do not implement
 
 Do not implement:
-- browser-side OpenAlex calls;
+- the front-end panel (`012`);
 - treating `cited_by_count` as an h-index;
-- storing fetched data.
+- ORCID/GitHub or arbitrary scraping; storing fetched data.
 
 ## Acceptance criteria
 
 The task is complete when:
-- author metrics appear via the Worker with the key requirement handled and the
-  distinct metric fields used correctly.
+- a valid author ID/URL returns assembled metrics + works text via the Worker
+  with the key requirement handled and the distinct metric fields used correctly;
+- a bad ID returns a clear `{ error, reason }`.
 
 ## Automated checks
 
 ```bash
-npm run check
+npm run build
 cd worker && npx wrangler deploy --dry-run
 ```
 
 ## Manual verification
 
-Look up an author by identifier and confirm the correct metrics appear and roast.
+Look up an author by ID/URL and confirm correct metrics; confirm a bad ID returns
+the error and reason.
 
 ## Commit and push
 

@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.1 · **Last updated:** 2026-06-05 · **Status:** binding design canon.
+**Version:** 1.2 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -40,6 +40,14 @@ notice; and the documented setup to deploy both pieces. Out of scope for the
 first version: automated profile retrieval (ORCID, OpenAlex, GitHub are planned
 later phases, see Appendix A); user-supplied keys; accounts; persistence; hosted
 shareable roast pages; and analytics.
+
+The next phase (now scheduled — see Appendix A) adds **structured-source
+retrieval**. The user may supply ORCID, OpenAlex, or GitHub identifiers (or their
+URLs) in a multi-input panel alongside file upload; the Worker retrieves each via
+that source's API, anchored on a stable identifier, and the result is merged into
+the editable roast input. This never extends to arbitrary URL scraping — Google
+Scholar, LinkedIn, and personal sites remain paste/upload only. User-supplied
+keys, accounts, persistence, hosted roast pages, and analytics stay out of scope.
 
 Target environment: a static site served from `https://<owner>.github.io` and a
 Worker on a Cloudflare account. Development is on Linux.
@@ -365,10 +373,26 @@ sincere profile by a search engine or casual visitor. `noindex` constrains only
 the hosted page; downloaded images are outside the tool's control once saved,
 which is one reason the content rules are enforced at generation time.
 
-### Later data sources (planned phases, not first version)
+### Source inputs and validation
 
-When automated retrieval is added, it goes through the Worker, never the browser,
-and never by scraping:
+Beyond the paste field, the interface offers a multi-input panel for
+structured-source identifiers: a box for an ORCID iD, OpenAlex author ID, or
+GitHub username (or the corresponding URL), with a control (a `+`) to add more
+boxes, and a file upload that accepts one or many files listed by name.
+
+When the user roasts, every input is validated before generation: the front end
+resolves each identifier/URL to its source and asks the Worker to retrieve it,
+and extracts each uploaded file client-side. Each input is then marked — a tick
+when data was retrieved, or a cross plus a brief reason (invalid identifier,
+unsupported URL, nothing found, source error) shown in small print beneath it.
+Retrieved and extracted text is merged into the editable roast input for review
+before generation. Retrieval is identifier-anchored and goes through the Worker;
+arbitrary URL scraping is not supported.
+
+### Later data sources (next phase)
+
+Automated retrieval goes through the Worker, never the browser, and never by
+scraping:
 
 - **ORCID** — the public API returns a researcher's self-curated record
   (employment, education, bio, work titles) from an iD. A read-public token is
@@ -467,8 +491,11 @@ the template. A phase proceeds only when its gate is met.
 | `006_input_files` | client-side extraction for `.txt`, `.md`, `.pdf`, `.docx`, `.odt` into the editable paste field; graceful degradation for unsupported files | each supported format's text is extracted client-side and roastable; an unsupported file shows the fallback guidance |
 | `007_share_export` | copy-to-clipboard, text download, and in-browser image export | a roast can be copied, downloaded as text, and downloaded as an image, all client-side |
 | `008_privacy_and_polish` | provider disclosure, `noindex`, in-character transient-error strings, input-size handling, deployment and configuration docs | a fresh deploy works from the docs alone; the privacy notice names the provider; transient failures show an in-character message |
-| `009_orcid` *(later)* | Worker-side ORCID lookup from an iD, folded into the roast input | an iD yields works/affiliations added to the roast |
-| `010_openalex` *(later)* | Worker-side OpenAlex enrichment with the required key | author metrics appear; the key requirement is handled |
+| `009_orcid` | Worker-side ORCID retrieval from an iD/URL | an iD yields works/affiliations as roast input |
+| `010_openalex` | Worker-side OpenAlex retrieval with the required key | author metrics retrieved as roast input |
+| `011_github` | Worker-side GitHub retrieval (public API) from a username/URL | a username yields profile/repos as roast input |
+| `012_source_input_panel` | front end: multi identifier/URL input with add/remove and per-input validate-on-roast (tick/cross + reason), merging retrieved text into the roast | each input shows a tick or a cross with a reason; retrieved text feeds the roast |
+| `013_upload_list` | front end: multi-file upload list with per-file tick/cross + reason (extends `006`) | uploaded files are listed with status and merged into the roast input |
 
 Human inputs to prepare before the relevant phases: an OpenRouter account with a
 small credit balance and a key; a Cloudflare account; and, for the later phases,
