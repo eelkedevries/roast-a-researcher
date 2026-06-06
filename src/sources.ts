@@ -37,6 +37,44 @@ export interface RetrieveResult {
   reason?: string
 }
 
+export interface Candidate {
+  id: string
+  name: string
+  affiliation: string | null
+}
+
+export interface SearchResult {
+  ok: boolean
+  candidates?: Candidate[]
+  reason?: string
+}
+
+// Search a source by name via the Worker's /search path, returning candidate
+// matches the user picks from. Identifier-anchored: each candidate carries the
+// concrete source id that retrieval then uses.
+export async function searchSource(
+  workerUrl: string,
+  source: SourceKind,
+  query: string,
+): Promise<SearchResult> {
+  try {
+    const response = await fetch(`${workerUrl}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source, query }),
+    })
+    const data = (await response.json().catch(() => null)) as
+      | { candidates?: Candidate[]; error?: string; message?: string }
+      | null
+    if (response.ok && Array.isArray(data?.candidates)) {
+      return { ok: true, candidates: data.candidates }
+    }
+    return { ok: false, reason: data?.message ?? 'Search is not available for this source.' }
+  } catch {
+    return { ok: false, reason: 'Network error during search.' }
+  }
+}
+
 export async function retrieveSource(
   workerUrl: string,
   source: SourceKind,

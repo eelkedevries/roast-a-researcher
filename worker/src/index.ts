@@ -606,6 +606,158 @@ async function retrieveOpenalex(
   })
 }
 
+// --- search by name (/search) ---
+
+interface Candidate {
+  id: string
+  name: string
+  affiliation: string | null
+}
+
+function candidates(list: Candidate[], allowOrigin: string): Response {
+  return new Response(JSON.stringify({ candidates: list }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
+  })
+}
+
+async function handleSearch(
+  request: Request,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
+  if (request.method !== 'POST') {
+    return jsonError('method_not_allowed', 'Use POST.', 405, allowOrigin)
+  }
+  if (!(request.headers.get('Content-Type') ?? '').includes('application/json')) {
+    return jsonError('bad_request', 'Expected application/json.', 400, allowOrigin)
+  }
+  let payload: unknown
+  try {
+    payload = await request.json()
+  } catch {
+    return jsonError('bad_request', 'Body is not valid JSON.', 400, allowOrigin)
+  }
+  const body = payload as { source?: unknown; query?: unknown }
+  const source = typeof body.source === 'string' ? body.source : ''
+  const query = typeof body.query === 'string' ? body.query.trim() : ''
+  if (!query) {
+    return jsonError('bad_request', 'No search query supplied.', 400, allowOrigin)
+  }
+  switch (source) {
+    case 'github':
+      return searchGithub(query, env, allowOrigin)
+    case 'openalex':
+      return searchOpenalex(query, env, allowOrigin)
+    case 'orcid':
+      return searchOrcid(query, allowOrigin)
+    default:
+      return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
+  }
+}
+
+async function searchGithub(
+  query: string,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    'User-Agent': 'roast-a-researcher',
+    Accept: 'application/vnd.github+json',
+  }
+  if (env.GITHUB_TOKEN) headers['Authorization'] = `Bearer ${env.GITHUB_TOKEN}`
+  let res: Response
+  try {
+    res = await fetch(
+      `https://api.github.com/search/users?q=${encodeURIComponent(query)}&per_page=5`,
+      { headers },
+    )
+  } catch {
+    return jsonError('source_error', 'Could not reach GitHub.', 502, allowOrigin)
+  }
+  if (res.status === 403) {
+    return jsonError('rate_limited', 'GitHub rate limit reached. Try again later.', 429, allowOrigin)
+  }
+  if (!res.ok) {
+    return jsonError('source_error', 'GitHub returned an error.', 502, allowOrigin)
+  }
+  const data = (await res.json()) as { items?: Array<{ login?: string }> }
+  const list = (data.items ?? [])
+    .filter((i) => i.login)
+    .map((i) => ({ id: i.login as string, name: i.login as string, affiliation: null }))
+  return candidates(list, allowOrigin)
+}
+
+async function searchOpenalex(
+  query: string,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
+  const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
+  let res: Response
+  try {
+    res = await fetch(
+      openalexUrl('authors', env, { search: query, 'per-page': '5' }),
+      { headers },
+    )
+  } catch {
+    return jsonError('source_error', 'Could not reach OpenAlex.', 502, allowOrigin)
+  }
+  if (!res.ok) {
+    return jsonError('source_error', 'OpenAlex returned an error.', 502, allowOrigin)
+  }
+  const data = (await res.json()) as {
+    results?: Array<{
+      id?: string
+      display_name?: string
+      last_known_institutions?: Array<{ display_name?: string }>
+    }>
+  }
+  const list: Candidate[] = []
+  for (const a of data.results ?? []) {
+    const id = a.id ? parseOpenalexId(a.id) : null
+    if (!id) continue
+    list.push({
+      id,
+      name: a.display_name ?? id,
+      affiliation: a.last_known_institutions?.[0]?.display_name ?? null,
+    })
+  }
+  return candidates(list, allowOrigin)
+}
+
+async function searchOrcid(query: string, allowOrigin: string): Promise<Response> {
+  const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
+  let res: Response
+  try {
+    res = await fetch(
+      `https://pub.orcid.org/v3.0/expanded-search/?q=${encodeURIComponent(query)}&rows=5`,
+      { headers },
+    )
+  } catch {
+    return jsonError('source_error', 'Could not reach ORCID.', 502, allowOrigin)
+  }
+  if (!res.ok) {
+    return jsonError('source_error', 'ORCID returned an error.', 502, allowOrigin)
+  }
+  const data = (await res.json()) as {
+    'expanded-result'?: Array<{
+      'orcid-id'?: string
+      'given-names'?: string
+      'family-names'?: string
+      'institution-name'?: string[]
+    }>
+  }
+  const list: Candidate[] = []
+  for (const r of data['expanded-result'] ?? []) {
+    const id = r['orcid-id']
+    if (!id) continue
+    const name = [r['given-names'], r['family-names']].filter(Boolean).join(' ') || id
+    list.push({ id, name, affiliation: r['institution-name']?.[0] ?? null })
+  }
+  return candidates(list, allowOrigin)
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const allowOrigin = env.ALLOW_ORIGIN
@@ -625,8 +777,13 @@ export default {
     }
 
     // Structured-source retrieval (ORCID/OpenAlex/GitHub) is served on /retrieve.
-    if (new URL(request.url).pathname.endsWith('/retrieve')) {
+    const pathname = new URL(request.url).pathname
+    if (pathname.endsWith('/retrieve')) {
       return handleRetrieve(request, env, allowOrigin)
+    }
+    // Search a source by name, returning candidate {id, name, affiliation} (017).
+    if (pathname.endsWith('/search')) {
+      return handleSearch(request, env, allowOrigin)
     }
 
     if (request.method !== 'POST') {

@@ -1,7 +1,7 @@
 import { config, copy, intensityLevels, type Intensity } from './config'
 import { extractText, UnsupportedFileError } from './extract'
 import { copyText, downloadText, downloadImage } from './share'
-import { detectSource, retrieveSource } from './sources'
+import { detectSource, retrieveSource, searchSource, type SourceKind } from './sources'
 
 // Builds the static shell and wires the roast request to the Worker (streamed,
 // with a typing effect), multi-file upload, and sharing.
@@ -31,6 +31,21 @@ export function mountApp(root: HTMLElement): void {
           <span class="field__label">Profile links (ORCID, OpenAlex, GitHub)</span>
           <div id="links"></div>
           <button id="add-link" class="button button--small" type="button">+ Add link</button>
+        </div>
+
+        <div class="search">
+          <span class="field__label">Or search by name</span>
+          <div class="search__row">
+            <select id="search-source" class="field__input search__source" aria-label="Source to search">
+              <option value="github">GitHub</option>
+              <option value="openalex">OpenAlex</option>
+              <option value="orcid">ORCID</option>
+            </select>
+            <input id="search-query" class="field__input search__query" type="text"
+              placeholder="Researcher name" />
+            <button id="search-btn" class="button button--small" type="button">Search</button>
+          </div>
+          <ul id="search-results" class="search__results"></ul>
         </div>
 
         <div class="intensity" role="radiogroup" aria-label="${copy.intensityLabel}">
@@ -141,6 +156,30 @@ export function mountApp(root: HTMLElement): void {
     addLinkBtn.addEventListener('click', () => addLinkRow(linksContainer))
   }
 
+  // Search by name: query a source, list candidates, and on selection add a
+  // pre-filled link row whose id is then validated/retrieved on Roast as usual.
+  const searchSourceSel = root.querySelector<HTMLSelectElement>('#search-source')
+  const searchQuery = root.querySelector<HTMLInputElement>('#search-query')
+  const searchBtn = root.querySelector<HTMLButtonElement>('#search-btn')
+  const searchResults = root.querySelector<HTMLUListElement>('#search-results')
+  if (searchSourceSel && searchQuery && searchBtn && searchResults && linksContainer) {
+    const runSearch = (): void => {
+      void doSearch(
+        searchSourceSel.value as SourceKind,
+        searchQuery.value,
+        searchResults,
+        linksContainer,
+      )
+    }
+    searchBtn.addEventListener('click', runSearch)
+    searchQuery.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        runSearch()
+      }
+    })
+  }
+
   // Share / export controls (revealed once a roast exists).
   const copyBtn = root.querySelector<HTMLButtonElement>('#share-copy')
   const textBtn = root.querySelector<HTMLButtonElement>('#share-text')
@@ -218,7 +257,7 @@ function appendToInput(textarea: HTMLTextAreaElement, text: string): void {
   textarea.value = existing ? `${existing}\n\n${trimmed}` : trimmed
 }
 
-function addLinkRow(container: HTMLElement): void {
+function addLinkRow(container: HTMLElement, value = ''): void {
   const row = document.createElement('div')
   row.className = 'link-row'
 
@@ -226,6 +265,7 @@ function addLinkRow(container: HTMLElement): void {
   input.type = 'url'
   input.className = 'field__input link-row__input'
   input.placeholder = 'ORCID iD, or an orcid.org / openalex.org / github.com link'
+  input.value = value
 
   const status = document.createElement('span')
   status.className = 'link-row__status'
@@ -245,6 +285,56 @@ function addLinkRow(container: HTMLElement): void {
   top.append(input, status, remove)
   row.append(top, reason)
   container.appendChild(row)
+}
+
+// Search a source by name and render the candidate list. Selecting a candidate
+// adds a pre-filled link row (its concrete id), which is validated on Roast.
+async function doSearch(
+  source: SourceKind,
+  query: string,
+  results: HTMLElement,
+  linksContainer: HTMLElement,
+): Promise<void> {
+  results.textContent = ''
+  if (!query.trim()) return
+
+  const pending = document.createElement('li')
+  pending.className = 'search__status'
+  pending.textContent = 'Searching…'
+  results.appendChild(pending)
+
+  const result = await searchSource(config.workerUrl, source, query)
+  results.textContent = ''
+
+  if (!result.ok) {
+    const li = document.createElement('li')
+    li.className = 'search__status'
+    li.textContent = result.reason ?? 'Search failed.'
+    results.appendChild(li)
+    return
+  }
+  if (!result.candidates || !result.candidates.length) {
+    const li = document.createElement('li')
+    li.className = 'search__status'
+    li.textContent = 'No matches found.'
+    results.appendChild(li)
+    return
+  }
+
+  for (const candidate of result.candidates) {
+    const li = document.createElement('li')
+    const pick = document.createElement('button')
+    pick.type = 'button'
+    pick.className = 'button button--small search__pick'
+    const affil = candidate.affiliation ? ` — ${candidate.affiliation}` : ''
+    pick.textContent = `${candidate.name}${affil}`
+    pick.addEventListener('click', () => {
+      addLinkRow(linksContainer, candidate.id)
+      results.textContent = ''
+    })
+    li.appendChild(pick)
+    results.appendChild(li)
+  }
 }
 
 // Validate each non-empty link row by retrieving it via the Worker, marking the

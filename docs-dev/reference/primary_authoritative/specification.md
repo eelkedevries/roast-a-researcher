@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.4 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
+**Version:** 1.5 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -405,6 +405,14 @@ unsupported URL, nothing found, source error) shown in small print beneath it.
 Retrieved and extracted text is merged into the editable roast input for review
 before generation. Retrieval is identifier-anchored and goes through the Worker;
 arbitrary URL scraping is not supported.
+
+A user who does not have an exact identifier may instead search a source by name:
+the front end sends `{ source, query }` to the Worker's `/search` path, the Worker
+queries that source's own author/user search API, and a short candidate list
+(`{ id, name, affiliation }`) is shown. Selecting a candidate fixes its concrete
+source id, which is then validated and retrieved like any other input. This stays
+identifier-anchored — search resolves to a stable id, never free-text scraping —
+and never ranks beyond the source API's own order.
 
 ### Later data sources (next phase)
 
