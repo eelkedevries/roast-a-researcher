@@ -5,6 +5,7 @@
 // via Workers KV (005). See the specification, Architecture → The Worker.
 
 import { metricsSummary } from './metrics'
+import { continentOf } from './geo'
 
 // Minimal shape of the Workers KV binding we use (avoids a full
 // @cloudflare/workers-types dependency for a single counter).
@@ -425,6 +426,84 @@ interface OpenAlexWork {
   title: string
 }
 
+interface OpenAlexGroup {
+  key: string
+  count: number
+}
+
+// Fetch an OpenAlex group_by aggregation over an author's works, or null on any
+// failure (enrichment then degrades silently).
+async function openalexGroupBy(
+  id: string,
+  dimension: string,
+  env: Env,
+  headers: Record<string, string>,
+): Promise<OpenAlexGroup[] | null> {
+  try {
+    const res = await fetch(
+      openalexUrl('works', env, { filter: `author.id:${id}`, group_by: dimension }),
+      { headers },
+    )
+    if (!res.ok) return null
+    const data = (await res.json()) as {
+      group_by?: Array<{ key?: string; count?: number }>
+    }
+    return (data.group_by ?? []).map((g) => ({ key: g.key ?? '', count: g.count ?? 0 }))
+  } catch {
+    return null
+  }
+}
+
+// Open-access breakdown and collaboration-geography lines (019). Each line is
+// omitted when its underlying aggregation is missing or empty.
+async function openalexEnrichment(
+  id: string,
+  env: Env,
+  headers: Record<string, string>,
+): Promise<string[]> {
+  const lines: string[] = []
+
+  const oa = await openalexGroupBy(id, 'open_access.oa_status', env, headers)
+  if (oa && oa.length) {
+    const counts: Record<string, number> = {}
+    let total = 0
+    for (const g of oa) {
+      counts[g.key] = g.count
+      total += g.count
+    }
+    if (total > 0) {
+      const closed = counts['closed'] ?? 0
+      const pct = Math.round(((total - closed) / total) * 100)
+      const order = ['gold', 'green', 'hybrid', 'bronze', 'diamond', 'closed']
+      const parts = order
+        .filter((k) => counts[k])
+        .map((k) => `${k} ${counts[k]}`)
+      lines.push(`Open access: ${pct}% open (${parts.join(', ')})`)
+    }
+  }
+
+  const countries = await openalexGroupBy(id, 'institutions.country_code', env, headers)
+  if (countries && countries.length) {
+    const codes = countries
+      .map((g) => g.key)
+      .filter((k) => /^[A-Za-z]{2}$/.test(k))
+    const continents = new Set<string>()
+    for (const code of codes) {
+      const c = continentOf(code)
+      if (c) continents.add(c)
+    }
+    if (codes.length) {
+      lines.push(
+        `Collaboration geography: institutions in ${codes.length} ` +
+          `${codes.length === 1 ? 'country' : 'countries'} across ${continents.size} ` +
+          `${continents.size === 1 ? 'continent' : 'continents'}`,
+      )
+    }
+  }
+
+  return lines
+}
+
 async function retrieveOpenalex(
   input: string,
   env: Env,
@@ -508,6 +587,9 @@ async function retrieveOpenalex(
   // concrete numbers to roast. Omitted cleanly when no works were returned.
   const metrics = metricsSummary(works, new Date().getUTCFullYear())
   if (metrics) lines.push(metrics)
+
+  // Open-access breakdown and collaboration geography (019).
+  for (const line of await openalexEnrichment(id, env, headers)) lines.push(line)
 
   const topWorks = works.filter((w) => w.title).slice(0, 15)
   if (topWorks.length) {
