@@ -33,13 +33,16 @@ This file records what *is* (current reality). The binding design canon is `docs
 
 ## In progress / next
 
-- `003_worker_proxy` code complete and verified locally via `wrangler dev` (real
-  roast returned; forged-origin → 403, oversized → 413, bad model → 400).
-  Automated checks pass (`npm run build`, `wrangler deploy --dry-run`).
-- **Deploy pending** (blocked by a Cloudflare API incident on 2026-06-05): run
-  `wrangler deploy`, set the `OPENROUTER_API_KEY` secret with a fresh key, then
-  set `WORKER_URL` in `src/config.ts` to the deployed Worker URL and redeploy the
-  front end. Until then the deployed site shows "not configured".
+- `003_worker_proxy` complete and verified end-to-end on the **deployed Worker**
+  `https://roast-a-researcher.eelkedevries.workers.dev`: live roast 200; forged
+  origin 403, oversized 413, bad model 400. `WORKER_URL` wired in `src/config.ts`.
+- Worker subdomain registered: `eelkedevries.workers.dev`. Secret
+  `OPENROUTER_API_KEY` set via `wrangler secret put`.
+- Next: deploy the front end to GitHub Pages (Settings → Pages → Source: GitHub
+  Actions, then run `deploy-pages.yml`) so the public site is live; then
+  `004_streaming`.
+- Security follow-up: the production OpenRouter key was provided over chat; rotate
+  it from the machine (`wrangler secret put OPENROUTER_API_KEY`, typed privately).
 
 ## Prompts run
 

@@ -16,7 +16,7 @@ export interface AppConfig {
 }
 
 export const config: AppConfig = {
-  workerUrl: '',
+  workerUrl: 'https://roast-a-researcher.eelkedevries.workers.dev',
   defaultModel: 'google/gemini-2.5-flash-lite',
   maxInputChars: 12000,
   defaultIntensity: 'spicy',
