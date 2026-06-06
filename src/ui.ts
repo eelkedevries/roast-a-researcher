@@ -47,6 +47,11 @@ export function mountApp(root: HTMLElement): void {
       </section>
 
       <section class="panel" aria-label="Roast output">
+        <dl id="personalia" class="personalia" hidden>
+          <div><dt>Name</dt><dd id="pers-name">—</dd></div>
+          <div><dt>Affiliation</dt><dd id="pers-affil">—</dd></div>
+          <div><dt>Sources</dt><dd id="pers-sources">—</dd></div>
+        </dl>
         <div id="roast-output" class="output" aria-live="polite">
           <p class="output__placeholder">${copy.outputPlaceholder}</p>
         </div>
@@ -76,6 +81,10 @@ export function mountApp(root: HTMLElement): void {
   const button = root.querySelector<HTMLButtonElement>('#roast')
   const output = root.querySelector<HTMLDivElement>('#roast-output')
 
+  // Provenance of the current input: uploaded filenames (and, later, retrieved
+  // sources). Shown in the personalia box.
+  const sources = new Set<string>()
+
   // Live character count against the client-side input cap.
   if (textarea && counter) {
     textarea.addEventListener('input', () => {
@@ -85,7 +94,7 @@ export function mountApp(root: HTMLElement): void {
 
   if (textarea && button && output) {
     button.addEventListener('click', () => {
-      void runRoast(textarea, root, output, button)
+      void runRoast(textarea, root, output, button, sources)
     })
   }
 
@@ -99,7 +108,7 @@ export function mountApp(root: HTMLElement): void {
     chooseBtn.addEventListener('click', () => fileInput.click())
     fileInput.addEventListener('change', () => {
       const files = Array.from(fileInput.files ?? [])
-      if (files.length) void processFiles(files, textarea, counter, fileList)
+      if (files.length) void processFiles(files, textarea, counter, fileList, sources)
       fileInput.value = ''
     })
     dropzone.addEventListener('dragover', (e) => {
@@ -113,7 +122,7 @@ export function mountApp(root: HTMLElement): void {
       e.preventDefault()
       dropzone.classList.remove('dropzone--over')
       const files = Array.from(e.dataTransfer?.files ?? [])
-      if (files.length) void processFiles(files, textarea, counter, fileList)
+      if (files.length) void processFiles(files, textarea, counter, fileList, sources)
     })
   }
 
@@ -143,6 +152,7 @@ async function processFiles(
   textarea: HTMLTextAreaElement,
   counter: HTMLElement,
   list: HTMLElement,
+  sources: Set<string>,
 ): Promise<void> {
   for (const file of files) {
     const item = document.createElement('li')
@@ -159,7 +169,10 @@ async function processFiles(
     remove.className = 'file-list__remove'
     remove.setAttribute('aria-label', `Remove ${file.name}`)
     remove.textContent = '×'
-    remove.addEventListener('click', () => item.remove())
+    remove.addEventListener('click', () => {
+      item.remove()
+      sources.delete(file.name)
+    })
     item.append(status, name, remove)
     list.appendChild(item)
 
@@ -167,6 +180,7 @@ async function processFiles(
       appendToInput(textarea, await extractText(file))
       status.textContent = '✓'
       item.classList.add('file-list__item--ok')
+      sources.add(file.name)
     } catch (err) {
       status.textContent = '✗'
       item.classList.add('file-list__item--fail')
@@ -208,11 +222,30 @@ function selectedIntensity(root: HTMLElement): Intensity {
     : config.defaultIntensity
 }
 
+function fillPersonalia(
+  root: HTMLElement,
+  header: { name?: unknown; affiliation?: unknown } | null,
+  sources: Set<string>,
+): void {
+  const value = (v: unknown): string =>
+    typeof v === 'string' && v.trim() ? v.trim() : 'unknown'
+  const used = sources.size ? [...sources] : ['Pasted text']
+  const set = (id: string, text: string): void => {
+    const el = root.querySelector(`#${id}`)
+    if (el) el.textContent = text
+  }
+  set('pers-name', value(header?.name))
+  set('pers-affil', value(header?.affiliation))
+  set('pers-sources', used.join(', '))
+  root.querySelector('#personalia')?.removeAttribute('hidden')
+}
+
 async function runRoast(
   textarea: HTMLTextAreaElement,
   root: HTMLElement,
   output: HTMLElement,
   button: HTMLButtonElement,
+  sources: Set<string>,
 ): Promise<void> {
   const profile = textarea.value.trim()
   if (!profile) {
@@ -231,6 +264,7 @@ async function runRoast(
   button.disabled = true
   setOutput(output, 'Roasting…')
   root.querySelector('#share')?.setAttribute('hidden', '')
+  root.querySelector('#personalia')?.setAttribute('hidden', '')
 
   try {
     const response = await fetch(config.workerUrl, {
@@ -259,8 +293,10 @@ async function runRoast(
       return
     }
 
-    // Stream the SSE response, appending token deltas as they arrive (the
-    // typing effect). The Worker relays OpenRouter's stream verbatim.
+    // Stream the SSE response. The model emits a one-line JSON header
+    // {name, affiliation} first; we parse that into the personalia box and
+    // stream the remainder as the roast (the typing effect), never showing the
+    // raw header. The Worker relays OpenRouter's stream verbatim.
     const body = response.body
     if (!body) {
       setOutput(output, randomError())
@@ -269,8 +305,36 @@ async function runRoast(
     const reader = body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
-    let roast = ''
-    setOutput(output, '')
+    let raw = ''
+    let headerDone = false
+    let headerEnd = 0
+    setOutput(output, '…')
+
+    const tryHeader = (): void => {
+      if (headerDone) return
+      const s = raw.trimStart()
+      if (!s.startsWith('{')) {
+        // No JSON header (model didn't comply); treat everything as the roast.
+        if (raw.length > 200) {
+          headerDone = true
+          headerEnd = 0
+          fillPersonalia(root, null, sources)
+        }
+        return
+      }
+      const close = s.indexOf('}')
+      if (close === -1) return
+      let header: { name?: unknown; affiliation?: unknown } | null = null
+      try {
+        header = JSON.parse(s.slice(0, close + 1)) as typeof header
+      } catch {
+        header = null
+      }
+      headerDone = true
+      headerEnd = header ? raw.length - s.length + close + 1 : 0
+      fillPersonalia(root, header, sources)
+    }
+
     for (;;) {
       const { value, done } = await reader.read()
       if (done) break
@@ -294,17 +358,26 @@ async function runRoast(
           }
           const delta = json.choices?.[0]?.delta?.content
           if (delta) {
-            roast += delta
-            output.textContent = roast
+            raw += delta
+            tryHeader()
+            if (headerDone) output.textContent = raw.slice(headerEnd).replace(/^\s+/, '')
           }
         } catch {
           // Partial or non-JSON line; wait for more data.
         }
       }
     }
-    if (!roast.trim()) {
+
+    if (!headerDone) {
+      fillPersonalia(root, null, sources)
+      headerEnd = 0
+    }
+    const roast = raw.slice(headerEnd).trim()
+    if (!roast) {
       setOutput(output, randomError())
     } else {
+      output.textContent = roast
+      root.querySelector('#personalia')?.removeAttribute('hidden')
       root.querySelector('#share')?.removeAttribute('hidden')
     }
   } catch {

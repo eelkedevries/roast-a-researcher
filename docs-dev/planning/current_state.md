@@ -65,3 +65,5 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 - 008_privacy_and_polish.md
 - 013_upload_list.md (run ahead of 009–012, which await API keys)
 - 011_github.md (GitHub needs no key; 009/010 still await ORCID/OpenAlex keys)
+- 014_input_panel_ux.md (dropzone + chips + segmented intensity)
+- 015_output_personalia.md (name in opening; personalia box from a model JSON header)
