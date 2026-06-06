@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.2 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
+**Version:** 1.3 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -353,6 +353,19 @@ write X") is an off-brief output, not a security event. The system prompt wraps
 the profile as quoted untrusted input and instructs the model to treat it as
 material to roast, not as instructions to follow, and the content rules above
 still apply to anything the model produces.
+
+### Roast output presentation
+
+The roast opens with the researcher's name. Above the roast, a personalia box
+shows the researcher's name, their current affiliation, and the input sources
+used for this roast (pasted text, each uploaded file, and each retrieved source).
+
+Name and affiliation are produced by the model as a single-line JSON header —
+`{ "name": …, "affiliation": … }` — emitted before the roast text. The front end
+parses that header into the box and streams the remainder as the roast; the raw
+header is never shown. Where the model cannot determine a field it returns null,
+and the box shows "unknown". The input sources are tracked by the front end from
+what the user supplied.
 
 ### Sharing and export
 
