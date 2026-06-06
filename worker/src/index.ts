@@ -133,7 +133,7 @@ export default {
 
     const upstreamBody = {
       model,
-      stream: false,
+      stream: true,
       max_tokens: MAX_OUTPUT_TOKENS,
       messages: [
         { role: 'system', content: buildSystemPrompt(intensity) },
@@ -161,21 +161,16 @@ export default {
       return jsonError('upstream_error', 'The roast could not be generated.', 502, allowOrigin)
     }
 
-    let data: { choices?: Array<{ message?: { content?: string } }> }
-    try {
-      data = (await upstream.json()) as typeof data
-    } catch {
-      return jsonError('upstream_error', 'The model returned an unreadable response.', 502, allowOrigin)
-    }
-
-    const roast = data.choices?.[0]?.message?.content?.trim() ?? ''
-    if (!roast) {
-      return jsonError('upstream_error', 'The model returned an empty roast.', 502, allowOrigin)
-    }
-
-    return new Response(JSON.stringify({ roast }), {
+    // Relay the OpenRouter SSE stream straight through, without buffering. Never
+    // call .text()/.json() on a streamed response — that would buffer the whole
+    // generation and defeat streaming.
+    return new Response(upstream.body, {
       status: 200,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        ...corsHeaders(allowOrigin),
+      },
     })
   },
 }

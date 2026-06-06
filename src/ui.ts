@@ -142,8 +142,52 @@ async function runRoast(
       return
     }
 
-    const data = (await response.json()) as { roast?: string }
-    setOutput(output, data.roast?.trim() || randomError())
+    // Stream the SSE response, appending token deltas as they arrive (the
+    // typing effect). The Worker relays OpenRouter's stream verbatim.
+    const body = response.body
+    if (!body) {
+      setOutput(output, randomError())
+      return
+    }
+    const reader = body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let roast = ''
+    setOutput(output, '')
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        const trimmed = line.trim()
+        // Ignore blank lines and `:` keep-alive comments.
+        if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data:')) {
+          continue
+        }
+        const payload = trimmed.slice(5).trim()
+        if (payload === '[DONE]') {
+          buffer = ''
+          break
+        }
+        try {
+          const json = JSON.parse(payload) as {
+            choices?: Array<{ delta?: { content?: string } }>
+          }
+          const delta = json.choices?.[0]?.delta?.content
+          if (delta) {
+            roast += delta
+            output.textContent = roast
+          }
+        } catch {
+          // Partial or non-JSON line; wait for more data.
+        }
+      }
+    }
+    if (!roast.trim()) {
+      setOutput(output, randomError())
+    }
   } catch {
     setOutput(output, randomError())
   } finally {
