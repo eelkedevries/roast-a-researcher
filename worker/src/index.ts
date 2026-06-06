@@ -4,6 +4,8 @@
 // system prompt. It streams the roast (004) and enforces a per-IP daily limit
 // via Workers KV (005). See the specification, Architecture → The Worker.
 
+import { metricsSummary } from './metrics'
+
 // Minimal shape of the Workers KV binding we use (avoids a full
 // @cloudflare/workers-types dependency for a single counter).
 interface KvCounter {
@@ -501,6 +503,11 @@ async function retrieveOpenalex(
       `h-index: ${author.summary_stats?.h_index ?? 'n/a'}; ` +
       `i10-index: ${author.summary_stats?.i10_index ?? 'n/a'}`,
   )
+
+  // Citation metrics computed from the retrieved works (016), giving the model
+  // concrete numbers to roast. Omitted cleanly when no works were returned.
+  const metrics = metricsSummary(works, new Date().getUTCFullYear())
+  if (metrics) lines.push(metrics)
 
   const topWorks = works.filter((w) => w.title).slice(0, 15)
   if (topWorks.length) {
