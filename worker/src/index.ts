@@ -340,6 +340,18 @@ async function retrieveOrcid(
     'activities-summary'?: {
       employments?: { 'affiliation-group'?: Group[] }
       educations?: { 'affiliation-group'?: Group[] }
+      distinctions?: { 'affiliation-group'?: Group[] }
+      fundings?: {
+        group?: Array<{
+          'funding-summary'?: Array<{
+            title?: { title?: { value?: string } }
+            organization?: { name?: string }
+            type?: string
+            'start-date'?: unknown
+            'end-date'?: unknown
+          }>
+        }>
+      }
       works?: { group?: Array<{ 'work-summary'?: Array<{ title?: { title?: { value?: string } } }> }> }
     }
   }
@@ -383,6 +395,27 @@ async function retrieveOrcid(
     'education-summary',
   )
   if (education.length) lines.push('Education:', ...education)
+
+  // Grants (fundings) and awards (distinctions) from the same public record.
+  const funding: string[] = []
+  for (const group of record['activities-summary']?.fundings?.group ?? []) {
+    const f = group['funding-summary']?.[0]
+    if (!f) continue
+    const title = f.title?.title?.value ?? ''
+    const org = f.organization?.name ?? ''
+    const type = f.type ? ` [${f.type}]` : ''
+    const range = orcidDateRange(f['start-date'], f['end-date'])
+    const text = [title, org].filter(Boolean).join(' — ')
+    if (text) funding.push(`- ${text}${type}${range}`)
+    if (funding.length >= 15) break
+  }
+  if (funding.length) lines.push('Funding:', ...funding)
+
+  const awards = affiliationLines(
+    record['activities-summary']?.distinctions?.['affiliation-group'],
+    'distinction-summary',
+  )
+  if (awards.length) lines.push('Awards:', ...awards)
 
   const titles: string[] = []
   for (const group of record['activities-summary']?.works?.group ?? []) {
