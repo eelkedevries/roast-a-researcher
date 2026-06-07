@@ -153,6 +153,8 @@ async function handleRetrieve(
       return retrieveOpenalex(id, env, allowOrigin)
     case 'semanticscholar':
       return retrieveSemanticScholar(id, allowOrigin)
+    case 'dblp':
+      return retrieveDblp(id, allowOrigin)
     default:
       return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
   }
@@ -1061,6 +1063,111 @@ async function buildOpenalex(
 }
 
 // OpenAlex /retrieve: validate the id, build the result, wrap as a Response.
+// --- DBLP (029): computer-science bibliography ---
+
+// Minimal XML entity decode for DBLP titles/venues (Workers have no DOM parser).
+function unescapeXml(s: string): string {
+  return s
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .trim()
+}
+
+// Extract a DBLP person id (pid) from a dblp.org URL or a bare pid (e.g. 65/3603,
+// l/EelkeDeVries).
+function parseDblpPid(input: string): string | null {
+  const s = input.trim()
+  const m = s.match(/dblp\.org\/pid\/([^?#]+?)(?:\.\w+)?$/i)
+  if (m) return m[1]
+  if (/^[a-z0-9]{1,4}\/[A-Za-z0-9:_-]+$/i.test(s)) return s
+  return null
+}
+
+async function retrieveDblp(input: string, allowOrigin: string): Promise<Response> {
+  const pid = parseDblpPid(input)
+  if (!pid) {
+    return jsonError('invalid_identifier', 'That is not a valid DBLP author id or URL.', 400, allowOrigin)
+  }
+  const headers = { Accept: 'application/xml', 'User-Agent': 'roast-a-researcher' }
+  let res: Response
+  try {
+    res = await fetch(`https://dblp.org/pid/${pid}.xml`, { headers })
+  } catch {
+    return jsonError('source_error', 'Could not reach DBLP.', 502, allowOrigin)
+  }
+  if (res.status === 404) {
+    return jsonError('not_found', 'No DBLP author with that id.', 404, allowOrigin)
+  }
+  if (!res.ok) {
+    return jsonError('source_error', `DBLP returned an error (HTTP ${res.status}).`, 502, allowOrigin)
+  }
+  const xml = await res.text()
+  const name = xml.match(/<dblpperson[^>]*\sname="([^"]+)"/)?.[1] ?? pid
+
+  // Each publication is wrapped in <r>…</r>; pull title, year and venue per record.
+  type Pub = { title: string; year: number | null; venue: string }
+  const pubs: Pub[] = []
+  for (const rec of xml.split('<r>').slice(1)) {
+    const title = rec.match(/<title>([\s\S]*?)<\/title>/)?.[1]
+    if (!title) continue
+    const year = rec.match(/<year>(\d{4})<\/year>/)?.[1]
+    const venue = rec.match(/<(?:journal|booktitle)>([\s\S]*?)<\/(?:journal|booktitle)>/)?.[1]
+    pubs.push({
+      title: unescapeXml(title),
+      year: year ? Number(year) : null,
+      venue: venue ? unescapeXml(venue) : '',
+    })
+  }
+  pubs.sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
+
+  const lines: string[] = [`DBLP: ${unescapeXml(name)} (${pid})`, `Publications listed: ${pubs.length}`]
+  const top = pubs.slice(0, 25)
+  if (top.length) {
+    lines.push('Recent publications:')
+    for (const p of top) {
+      const meta = [p.venue, p.year].filter(Boolean).join(', ')
+      lines.push(`- "${p.title}"${meta ? ` (${meta})` : ''}`)
+    }
+  }
+  return new Response(JSON.stringify({ text: lines.join('\n') }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
+  })
+}
+
+async function searchDblp(query: string, allowOrigin: string): Promise<Response> {
+  const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
+  let res: Response
+  try {
+    res = await fetch(
+      `https://dblp.org/search/author/api?q=${encodeURIComponent(query)}&format=json&h=5`,
+      { headers },
+    )
+  } catch {
+    return jsonError('source_error', 'Could not reach DBLP.', 502, allowOrigin)
+  }
+  if (!res.ok) {
+    return jsonError('source_error', `DBLP search failed (HTTP ${res.status}).`, 502, allowOrigin)
+  }
+  const data = (await res.json()) as {
+    result?: { hits?: { hit?: Array<{ info?: { author?: string; url?: string; notes?: unknown } }> | { info?: { author?: string; url?: string } } } }
+  }
+  const raw = data.result?.hits?.hit
+  const hits = Array.isArray(raw) ? raw : raw ? [raw] : []
+  const list: Candidate[] = []
+  for (const h of hits) {
+    const pid = h.info?.url ? parseDblpPid(h.info.url) : null
+    if (!pid || !h.info?.author) continue
+    list.push({ id: pid, name: h.info.author, affiliation: null })
+  }
+  return candidates(list, allowOrigin)
+}
+
 // Semantic Scholar as a first-class source (028): author profile + top papers.
 async function retrieveSemanticScholar(input: string, allowOrigin: string): Promise<Response> {
   const authorId = input.match(/\d{3,}/)?.[0]
@@ -1231,6 +1338,8 @@ async function handleSearch(
       return searchOrcid(query, allowOrigin)
     case 'semanticscholar':
       return searchSemanticScholar(query, allowOrigin)
+    case 'dblp':
+      return searchDblp(query, allowOrigin)
     default:
       return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
   }

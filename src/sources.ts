@@ -2,7 +2,7 @@
 // via the Worker's /retrieve path. Arbitrary URLs (Scholar, LinkedIn, personal
 // sites) are not supported — they return null and the UI advises pasting text.
 
-export type SourceKind = 'orcid' | 'openalex' | 'github' | 'semanticscholar'
+export type SourceKind = 'orcid' | 'openalex' | 'github' | 'semanticscholar' | 'dblp'
 
 export function detectSource(input: string): { source: SourceKind; id: string } | null {
   const s = input.trim()
@@ -11,6 +11,8 @@ export function detectSource(input: string): { source: SourceKind; id: string } 
   // Bare identifiers.
   if (/^\d{4}-\d{4}-\d{4}-\d{3}[\dxX]$/.test(s)) return { source: 'orcid', id: s }
   if (/^A\d{5,}$/i.test(s)) return { source: 'openalex', id: s }
+  // DBLP person id (pid), e.g. 65/3603 or l/EelkeDeVries.
+  if (/^[a-z0-9]{1,4}\/[A-Za-z0-9:_-]+$/i.test(s)) return { source: 'dblp', id: s }
 
   // URLs (or host-like tokens).
   if (/^https?:\/\//i.test(s) || s.includes('.')) {
@@ -23,6 +25,10 @@ export function detectSource(input: string): { source: SourceKind; id: string } 
       if (host === 'semanticscholar.org' || host.endsWith('.semanticscholar.org')) {
         const m = url.pathname.match(/(\d{3,})/)
         return m ? { source: 'semanticscholar', id: m[1] } : null
+      }
+      if (host === 'dblp.org' || host.endsWith('.dblp.org') || host === 'dblp.uni-trier.de') {
+        const m = url.pathname.match(/\/pid\/([^?#]+?)(?:\.\w+)?$/)
+        return m ? { source: 'dblp', id: m[1] } : null
       }
       return null // a URL we do not support
     } catch {

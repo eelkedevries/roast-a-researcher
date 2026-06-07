@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.12 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.13 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -464,6 +464,11 @@ scraping:
   the model has concrete material, and returns the basic bibliometrics as
   structured stats for the card. Abstracts are pulled only for the few top works
   (the bulky field), while a leaner larger fetch feeds the metrics.
+- **DBLP** — the free, keyless computer-science bibliography. `search/author/api`
+  (JSON) returns author candidates; the person record `pid/{pid}.xml` (parsed with
+  string ops, as the Worker has no DOM parser) yields the publication list (title,
+  venue, year). Identity is anchored on the DBLP person id (pid). No citation
+  metrics. Best for computer-science researchers.
 - **GitHub** — the public REST API (profile, repos, languages) is CORS-enabled
   and usable, with a 60-requests/hour unauthenticated limit per IP; useful for
   technically active researchers.
