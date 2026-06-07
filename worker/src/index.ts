@@ -490,7 +490,11 @@ async function retrieveOrcid(
     )
     if (!lookup.ok) {
       const detail = (await lookup.text().catch(() => '')).slice(0, 160)
-      lines.push('', `(OpenAlex enrichment unavailable: HTTP ${lookup.status}${detail ? ` — ${detail}` : ''})`)
+      const keyState = env.OPENALEX_API_KEY ? 'API key configured' : 'NO API key configured'
+      lines.push(
+        '',
+        `(OpenAlex enrichment unavailable: HTTP ${lookup.status} [${keyState}]${detail ? ` — ${detail}` : ''})`,
+      )
     } else {
       const data = (await lookup.json()) as { results?: Array<{ id?: string }> }
       const oaId = data.results?.[0]?.id ? parseOpenalexId(data.results[0].id) : null
