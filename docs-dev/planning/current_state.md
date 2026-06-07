@@ -85,10 +85,13 @@ This file records what *is* (current reality). The binding design canon is `docs
   (`[auid]`) when an ORCID is given. Search now spans GitHub, ORCID, OpenAlex,
   Semantic Scholar, DBLP. **arXiv and PubMed were implemented then disabled
   (spec v1.15, 2026-06-07) — namesake risk; their code path is removed.**
-- Remaining prompt: `018_retrieval_cache` (KV cache of `/retrieve`). **Not run —
-  blocked on a spec decision** — it conflicts with the locked "Data flow and
-  statelessness" rule; the spec must be revised (cache only public-record
-  retrievals, set a TTL, bump version) before it can run.
+- `018_retrieval_cache` **done** (spec v1.16): public-record retrievals
+  (ORCID/OpenAlex/GitHub/Semantic Scholar/DBLP) are cached in KV (`rc:` prefix,
+  reusing the `RATE_LIMIT` namespace) with a short TTL (`RETRIEVE_CACHE_TTL`,
+  default 24h). User text and the roast are never cached; errors not cached. This
+  cuts OpenAlex budget burn and rate-limit 429s on repeat roasts. The locked
+  statelessness decision was deliberately relaxed for public records only. Per-roast
+  OpenAlex calls were also trimmed (dedupe group_by; p-index 8→3).
 - Security follow-up: the OpenRouter production key was provided over chat; rotate
   it from the machine (`wrangler secret put OPENROUTER_API_KEY`, typed privately),
   and delete the temporary Cloudflare API token.
