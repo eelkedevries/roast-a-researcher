@@ -111,6 +111,7 @@ function buildSystemPrompt(intensity: Intensity): string {
     '- No content targeting protected characteristics (race, ethnicity, nationality, gender, sexuality, disability, religion, age, appearance, and the like).',
     '- Nothing harassing, defamatory, or sexual.',
     '- Do not invent factual allegations and present them as true. Never manufacture misconduct, fraud, plagiarism, retractions, or scandals that are not in the supplied text.',
+    '- A single piece of research routinely appears in several forms — a preprint (e.g. bioRxiv/arXiv), a conference paper, and a peer-reviewed journal article — often with slightly different titles and years. These are the SAME work in different venues/versions, which is completely normal. Never read repeated/similar titles, shared topics, or preprint-plus-journal pairs as duplicate publication, self-plagiarism, "salami-slicing", or retractions, and never imply misconduct from them.',
     '- For a well-known name you may draw on general public knowledge for recognition and flavour, but assert no invented specifics as fact.',
     '',
     'Style:',
