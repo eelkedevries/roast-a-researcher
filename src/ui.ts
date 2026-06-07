@@ -10,6 +10,7 @@ import {
   type Candidate,
   type SourceStats,
   type ChartData,
+  type RetrieveResult,
 } from './sources'
 import { renderCharts } from './charts'
 
@@ -670,15 +671,42 @@ function collapseSearchToSelected(root: HTMLElement): void {
 
 // --- roast ---
 
+// The OpenAlex author id a retrieved block reports (ORCID auto-embeds an OpenAlex
+// block; a standalone OpenAlex selection reports the same id), used to de-duplicate.
+function openalexKeyOf(text: string): string | null {
+  return text.match(/OpenAlex:[^\n]*\((A\d+)\)/i)?.[1]?.toUpperCase() ?? null
+}
+
+// De-duplicate retrieved records: collapse blocks that describe the same OpenAlex
+// author (keeping the richest/longest copy — e.g. the ORCID block that embeds it),
+// and drop exact-duplicate keyless blocks. Input order is preserved.
+function dedupeRecords<T extends { text: string }>(items: T[]): T[] {
+  const keyless: T[] = []
+  const byKey = new Map<string, T>()
+  for (const it of items) {
+    const key = openalexKeyOf(it.text)
+    if (!key) {
+      if (!keyless.some((x) => x.text === it.text)) keyless.push(it)
+      continue
+    }
+    const existing = byKey.get(key)
+    if (!existing || it.text.length > existing.text.length) byKey.set(key, it)
+  }
+  const chosen = new Set<T>([...keyless, ...byKey.values()])
+  const out: T[] = []
+  for (const it of items) {
+    if (chosen.has(it) && !out.includes(it)) out.push(it)
+  }
+  return out
+}
+
 // Retrieve every link row authoritatively (cached) and collect its text/stats/
-// charts, updating each row's inline status.
+// charts, updating each row's inline status; de-duplicate overlapping records.
 async function validateLinks(
   root: HTMLElement,
   sources: Set<string>,
 ): Promise<{ texts: string[]; stats: SourceStats[]; charts: ChartData[] }> {
-  const texts: string[] = []
-  const stats: SourceStats[] = []
-  const charts: ChartData[] = []
+  const collected: Array<{ text: string; stats?: SourceStats; charts?: ChartData }> = []
   for (const row of Array.from(root.querySelectorAll<HTMLElement>('.link-row'))) {
     const input = row.querySelector<HTMLInputElement>('.link-row__input')
     const meta = row.querySelector<HTMLElement>('.link-row__meta')
@@ -714,9 +742,7 @@ async function validateLinks(
       retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
       retrieve.title = ''
       row.dataset.retrieved = value
-      texts.push(res.text)
-      if (res.stats) stats.push(res.stats)
-      if (res.charts) charts.push(res.charts)
+      collected.push({ text: res.text, stats: res.stats, charts: res.charts })
       sources.add(SOURCE_LABELS[detected.source])
     } else {
       retrieve.className = 'link-row__retrieve is-bad'
@@ -724,6 +750,17 @@ async function validateLinks(
       retrieve.title = res.reason ?? 'Retrieval failed.'
     }
   }
+  const kept = dedupeRecords(collected)
+  const texts = kept.map((k) => k.text)
+  const statsSeen = new Set<string>()
+  const stats: SourceStats[] = []
+  for (const k of kept) {
+    if (k.stats && !statsSeen.has(k.stats.title)) {
+      statsSeen.add(k.stats.title)
+      stats.push(k.stats)
+    }
+  }
+  const charts = kept.flatMap((k) => (k.charts ? [k.charts] : []))
   return { texts, stats, charts }
 }
 
@@ -1023,16 +1060,39 @@ async function exportRetrievedData(
     if (!inputs.length) {
       parts.push('## Sources', '', '_No profile links entered — add links and export again._')
     } else {
+      type Row = {
+        value: string
+        detected: { source: SourceKind; id: string } | null
+        result: RetrieveResult | null
+      }
+      const rows: Row[] = []
       for (const value of inputs) {
         const detected = detectSource(value)
-        if (!detected) {
-          parts.push(`## ${value}`, '', '_Not a supported link._', '')
+        const result = detected
+          ? await retrieveSource(config.workerUrl, detected.source, detected.id, true)
+          : null
+        rows.push({ value, detected, result })
+      }
+      // Same de-duplication as the roast: omit a record already contained in another.
+      const okRows = rows.filter((r) => r.result?.ok && r.result.text)
+      const kept = new Set(
+        dedupeRecords(okRows.map((r) => ({ text: r.result?.text ?? '', row: r }))).map(
+          (x) => x.row,
+        ),
+      )
+      for (const r of rows) {
+        if (!r.detected) {
+          parts.push(`## ${r.value}`, '', '_Not a supported link._', '')
           continue
         }
-        const result = await retrieveSource(config.workerUrl, detected.source, detected.id, true)
-        parts.push(`## ${detected.source} — ${detected.id}`, '')
-        if (!result.ok || !result.text) {
-          parts.push(`_Retrieval failed: ${result.reason ?? 'unknown error'}._`, '')
+        parts.push(`## ${r.detected.source} — ${r.detected.id}`, '')
+        const result = r.result
+        if (!result || !result.ok || !result.text) {
+          parts.push(`_Retrieval failed: ${result?.reason ?? 'unknown error'}._`, '')
+          continue
+        }
+        if (!kept.has(r)) {
+          parts.push('_Same record as another selected source above — omitted to avoid duplication._', '')
           continue
         }
         parts.push('### Retrieved text (fed to the roast)', '', '```\n' + result.text + '\n```', '')
