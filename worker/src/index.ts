@@ -483,20 +483,27 @@ async function retrieveOrcid(
       openalexUrl('authors', env, { filter: `orcid:${id}`, 'per-page': '1' }),
       { headers: oaHeaders },
     )
-    if (lookup.ok) {
+    if (!lookup.ok) {
+      const detail = (await lookup.text().catch(() => '')).slice(0, 160)
+      lines.push('', `(OpenAlex enrichment unavailable: HTTP ${lookup.status}${detail ? ` — ${detail}` : ''})`)
+    } else {
       const data = (await lookup.json()) as { results?: Array<{ id?: string }> }
       const oaId = data.results?.[0]?.id ? parseOpenalexId(data.results[0].id) : null
-      if (oaId) {
+      if (!oaId) {
+        lines.push('', '(No OpenAlex profile matched this ORCID.)')
+      } else {
         const oa = await buildOpenalex(oaId, env, oaHeaders)
         if (oa) {
           lines.push('', oa.text)
           stats = oa.stats
           charts = oa.charts
+        } else {
+          lines.push('', '(OpenAlex profile found but could not be retrieved.)')
         }
       }
     }
   } catch {
-    // OpenAlex enrichment is best-effort; the ORCID record stands on its own.
+    lines.push('', '(OpenAlex enrichment skipped: network error.)')
   }
 
   return new Response(JSON.stringify({ text: lines.join('\n'), stats, charts }), {
