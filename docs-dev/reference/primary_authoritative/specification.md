@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.21 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.22 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -431,31 +431,37 @@ still apply to anything the model produces.
 > the exact layout/markup lives in `src/ui.ts` + `src/style.css`, which are
 > authoritative for presentation detail.
 
-The roast opens with the researcher's name. Above the roast, a personalia box
-shows the researcher's name, their current affiliation, and the input sources
-used for this roast (pasted text, each uploaded file, and each retrieved source).
+The output is organised into four sections, in order:
 
-Name and affiliation are produced by the model as a single-line JSON header —
-`{ "name": …, "affiliation": … }` — emitted before the roast text. The front end
-parses that header into the box and streams the remainder as the roast; the raw
-header is never shown. Where the model cannot determine a field it returns null,
-and the box shows "unknown". The input sources are tracked by the front end from
-what the user supplied.
+1. **Personalia** — name, current position, current and previous affiliation(s),
+   research domain, research focus (keywords), and education & qualifications, plus
+   subsections for **Profiles** (the online-profile links the user supplied),
+   **Grants**, and **Awards**. Empty fields and empty subsections are omitted.
+2. **Profile** — the roast text itself; its first sentence names the researcher.
+3. **Papers** — the main papers with citation counts where available.
+4. **The numbers** — the stats card and charts (below).
 
-Below the roast, a stats card shows basic bibliometrics for any source that
-returned them (currently OpenAlex: publications, citations, h-index, i10-index,
-g-index, mean citations). The card is structured data returned by the Worker
-alongside the retrieved text — not parsed out of the roast — and is hidden when no
-source provided stats.
+Personalia and Papers are produced by the model as a **structured JSON block
+emitted before the roast**, drawn only from the supplied text (no invented
+values), followed by a line containing exactly `===ROAST===` and then the roast.
+The front end buffers until the marker, parses the JSON to render the structured
+sections, and streams the remainder as the roast; the raw JSON and marker are
+never shown. Fields the model cannot determine are omitted rather than shown as
+"unknown". The **Profiles** list is built by the front end from the links the user
+supplied (it is not model-derived). If the model does not emit a parseable block,
+the whole output is shown as the roast and the structured sections stay hidden.
 
-Beneath the stats card, simple charts visualise the same retrieved data
-(publications and citations per year, the open-access breakdown, and top co-author
-countries), driven by a structured `charts` payload the Worker returns. Earlier
-phases excluded visualisation; it is now in scope, but kept deliberately minimal:
-client-side inline SVG with no charting dependency and no secret, each chart
-carrying an accessible label and a data-table fallback. Charts are an on-page
-presentation only — they are not part of the client-side sharing/export (still
-copy, text, and a single rendered image) and nothing is stored.
+The stats card shows basic bibliometrics for any source that returned them
+(currently OpenAlex: publications, citations, h-index, i10-index, g-index, mean
+citations). It is structured data returned by the Worker alongside the retrieved
+text — not parsed out of the roast — and is hidden when no source provided stats.
+Alongside it, simple charts visualise the same retrieved data (publications and
+citations per year, the open-access breakdown, top co-author countries, top
+venues), driven by a structured `charts` payload the Worker returns. Charts are
+kept deliberately minimal: client-side inline SVG with no charting dependency and
+no secret, each carrying an accessible label and a data-table fallback. They are
+on-page presentation only — not part of the client-side sharing/export (still
+copy, text, and a single rendered image of the roast) and nothing is stored.
 
 ### Sharing and export
 

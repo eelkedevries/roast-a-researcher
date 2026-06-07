@@ -134,15 +134,39 @@ export function mountApp(root: HTMLElement): void {
       </section>
 
       <section class="result-card" aria-label="Roast output">
-        <div class="out-head"><span class="label" style="margin:0">The roast</span></div>
-        <dl class="personalia hidden" id="personalia">
-          <div class="row"><dt>Name</dt><dd id="p-name">—</dd></div>
-          <div class="row"><dt>Affiliation</dt><dd id="p-affil">—</dd></div>
-          <div class="row"><dt>Sources</dt><dd id="p-sources">—</dd></div>
-        </dl>
-        <div class="output placeholder" id="output" aria-live="polite">${copy.outputPlaceholder}</div>
-        <div class="stats-card" id="stats-card" hidden></div>
-        <div class="charts-card" id="charts-card" hidden></div>
+        <section class="rsec hidden" id="sec-personalia">
+          <h2 class="rsec__h">Personalia</h2>
+          <dl class="personalia" id="personalia"></dl>
+          <div class="subsec hidden" id="sub-profiles">
+            <h3 class="subsec__h">Profiles</h3>
+            <ul class="plist" id="p-profiles"></ul>
+          </div>
+          <div class="subsec hidden" id="sub-grants">
+            <h3 class="subsec__h">Grants</h3>
+            <ul class="plist" id="p-grants"></ul>
+          </div>
+          <div class="subsec hidden" id="sub-awards">
+            <h3 class="subsec__h">Awards</h3>
+            <ul class="plist" id="p-awards"></ul>
+          </div>
+        </section>
+
+        <section class="rsec" id="sec-profile">
+          <h2 class="rsec__h">Profile</h2>
+          <div class="output placeholder" id="output" aria-live="polite">${copy.outputPlaceholder}</div>
+        </section>
+
+        <section class="rsec hidden" id="sec-papers">
+          <h2 class="rsec__h">Papers</h2>
+          <ol class="papers" id="papers"></ol>
+        </section>
+
+        <section class="rsec hidden" id="sec-numbers">
+          <h2 class="rsec__h">The numbers</h2>
+          <div class="stats-card" id="stats-card" hidden></div>
+          <div class="charts-card" id="charts-card" hidden></div>
+        </section>
+
         <div class="share hidden" id="share">
           <button class="btn btn--ghost" id="s-copy" type="button">Copy</button>
           <button class="btn btn--ghost" id="s-txt" type="button">Download .txt</button>
@@ -902,22 +926,153 @@ function streamOut(output: HTMLElement, text: string): void {
   output.replaceChildren(document.createTextNode(text), caret)
 }
 
-function fillPersonalia(
-  root: HTMLElement,
-  header: { name?: unknown; affiliation?: unknown } | null,
-  sources: Set<string>,
-): void {
-  const value = (v: unknown): string => (typeof v === 'string' && v.trim() ? v.trim() : 'unknown')
-  const used = sources.size ? [...sources] : ['Pasted text']
-  const set = (id: string, text: string): void => {
-    const el = root.querySelector(`#${id}`)
-    if (el) el.textContent = text
+interface Paper {
+  title?: string
+  venue?: string | null
+  year?: number | null
+  citations?: number | null
+}
+interface Personalia {
+  name?: string | null
+  position?: string | null
+  currentAffiliations?: string[]
+  previousAffiliations?: string[]
+  researchDomain?: string | null
+  researchFocus?: string[]
+  education?: string[]
+  grants?: string[]
+  awards?: string[]
+  papers?: Paper[]
+}
+
+const asStr = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
+const asStrList = (v: unknown): string[] =>
+  Array.isArray(v)
+    ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map((s) => s.trim())
+    : []
+
+// Render the structured Personalia + Profiles/Grants/Awards + Papers sections from
+// the model's JSON block. Empty fields and sections are omitted. `data` is null
+// when the model did not return a parseable block (sections stay hidden).
+function renderResult(root: HTMLElement, data: Personalia | null): void {
+  const dl = root.querySelector<HTMLElement>('#personalia')
+  const sec = root.querySelector<HTMLElement>('#sec-personalia')
+  if (!dl || !sec) return
+  dl.textContent = ''
+
+  const addRow = (label: string, value: string, id?: string): void => {
+    if (!value) return
+    const row = document.createElement('div')
+    row.className = 'row'
+    const dt = document.createElement('dt')
+    dt.textContent = label
+    const dd = document.createElement('dd')
+    dd.textContent = value
+    if (id) dd.id = id
+    row.append(dt, dd)
+    dl.appendChild(row)
   }
-  set('p-name', value(header?.name))
-  set('p-affil', value(header?.affiliation))
-  set('p-sources', used.join(', '))
+
+  addRow('Name', asStr(data?.name), 'p-name')
+  addRow('Position', asStr(data?.position))
+  addRow('Current affiliation', asStrList(data?.currentAffiliations).join('; '))
+  addRow('Previous affiliations', asStrList(data?.previousAffiliations).join('; '))
+  addRow('Research domain', asStr(data?.researchDomain))
+  addRow('Research focus', asStrList(data?.researchFocus).join(', '))
+  addRow('Education & qualifications', asStrList(data?.education).join('; '))
+
+  renderProfiles(root)
+  renderSubList(root, '#sub-grants', '#p-grants', asStrList(data?.grants))
+  renderSubList(root, '#sub-awards', '#p-awards', asStrList(data?.awards))
   maybeAddVerifiedBadge(root)
-  root.querySelector('#personalia')?.classList.remove('hidden')
+
+  const hasSub = (sel: string): boolean => !root.querySelector(sel)?.classList.contains('hidden')
+  const hasPersonalia =
+    dl.children.length > 0 || hasSub('#sub-profiles') || hasSub('#sub-grants') || hasSub('#sub-awards')
+  sec.classList.toggle('hidden', !hasPersonalia)
+
+  renderPapers(root, Array.isArray(data?.papers) ? (data?.papers as Paper[]) : [])
+}
+
+// The "Profiles" subsection lists the online profiles/links the user supplied.
+function renderProfiles(root: HTMLElement): void {
+  const sub = root.querySelector<HTMLElement>('#sub-profiles')
+  const list = root.querySelector<HTMLElement>('#p-profiles')
+  if (!sub || !list) return
+  list.textContent = ''
+  const seen = new Set<string>()
+  for (const input of Array.from(root.querySelectorAll<HTMLInputElement>('.link-row__input'))) {
+    const detected = detectSource(input.value.trim())
+    if (!detected) continue
+    const url = recordUrl(detected)
+    if (seen.has(url)) continue
+    seen.add(url)
+    const li = document.createElement('li')
+    const a = document.createElement('a')
+    a.href = url
+    a.target = '_blank'
+    a.rel = 'noopener'
+    a.textContent = `${SOURCE_LABELS[detected.source]}: ${url}`
+    li.appendChild(a)
+    list.appendChild(li)
+  }
+  sub.classList.toggle('hidden', list.children.length === 0)
+}
+
+function renderSubList(root: HTMLElement, secSel: string, listSel: string, items: string[]): void {
+  const sec = root.querySelector<HTMLElement>(secSel)
+  const list = root.querySelector<HTMLElement>(listSel)
+  if (!sec || !list) return
+  list.textContent = ''
+  for (const item of items) {
+    const li = document.createElement('li')
+    li.textContent = item
+    list.appendChild(li)
+  }
+  sec.classList.toggle('hidden', items.length === 0)
+}
+
+function renderPapers(root: HTMLElement, papers: Paper[]): void {
+  const sec = root.querySelector<HTMLElement>('#sec-papers')
+  const ol = root.querySelector<HTMLElement>('#papers')
+  if (!sec || !ol) return
+  ol.textContent = ''
+  for (const p of papers) {
+    const title = asStr(p?.title)
+    if (!title) continue
+    const li = document.createElement('li')
+    const t = document.createElement('span')
+    t.className = 'paper__title'
+    t.textContent = title
+    li.appendChild(t)
+    const bits: string[] = []
+    const venue = asStr(p?.venue)
+    if (venue) bits.push(venue)
+    if (typeof p?.year === 'number') bits.push(String(p.year))
+    let metaText = bits.join(' · ')
+    if (typeof p?.citations === 'number') metaText += `${metaText ? ' — ' : ''}cited ${p.citations}`
+    if (metaText) {
+      const meta = document.createElement('span')
+      meta.className = 'paper__meta'
+      meta.textContent = metaText
+      li.append(document.createElement('br'), meta)
+    }
+    ol.appendChild(li)
+  }
+  sec.classList.toggle('hidden', ol.children.length === 0)
+}
+
+// Show or hide the "The numbers" section based on whether any stats/charts rendered.
+function toggleNumbers(root: HTMLElement, stats: SourceStats[], charts: ChartData[]): void {
+  const hasCharts = charts.some(
+    (c) =>
+      c.worksPerYear?.length ||
+      c.citationsPerYear?.length ||
+      c.openAccess?.length ||
+      c.topCountries?.length ||
+      c.topVenues?.length,
+  )
+  root.querySelector('#sec-numbers')?.classList.toggle('hidden', !(stats.length || hasCharts))
 }
 
 // Append the "ORCID-verified" badge to the Name row when the logged-in researcher's
@@ -975,19 +1130,29 @@ function renderStatsCard(root: HTMLElement, stats: SourceStats[]): void {
 // Zero-cost demo: render the saved fake researcher fully client-side.
 function showDemo(root: HTMLElement, textarea: HTMLTextAreaElement, output: HTMLElement): void {
   textarea.value = demoResearcher.profile
-  const demoSources = new Set<string>(['Simulated demo data'])
   output.className = 'output'
   output.textContent = demoResearcher.roast
-  fillPersonalia(
-    root,
-    { name: demoResearcher.name, affiliation: demoResearcher.affiliation },
-    demoSources,
-  )
+  renderResult(root, {
+    name: demoResearcher.name,
+    position: 'Self-described thought leader',
+    currentAffiliations: [demoResearcher.affiliation],
+    researchDomain: 'Disruptive paradigms',
+    researchFocus: ['synergy', 'frameworks', 'stakeholder value'],
+    grants: ['Exploratory Pilot Feasibility Study Grant (€4,000)', '73 ERC applications, 0 awarded'],
+    awards: ['Best Paper Award (a workshop he co-organised)', 'LinkedIn Top Voice'],
+    papers: [
+      { title: 'A Preliminary Survey of Our Own Previous Work', year: 2022, citations: 41 },
+      { title: 'Towards a Framework for Frameworks: A Meta-Framework Approach', year: 2021, citations: 2 },
+      { title: 'Leveraging Synergies: A Holistic Paradigm', year: 2020, citations: 1 },
+      { title: 'On the Disruptive Potential of Disruption', year: 2019, citations: 0 },
+    ],
+  })
   renderStatsCard(root, [demoResearcher.stats])
   const chartsCard = root.querySelector<HTMLElement>('#charts-card')
   if (chartsCard) renderCharts(chartsCard, [demoResearcher.charts])
+  toggleNumbers(root, [demoResearcher.stats], [demoResearcher.charts])
   root.querySelector('#share')?.classList.remove('hidden')
-  output.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  root.querySelector('#sec-personalia')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 async function runRoast(
@@ -1006,7 +1171,9 @@ async function runRoast(
   button.disabled = true
   collapseSearchToSelected(root)
   root.querySelector('#share')?.classList.add('hidden')
-  root.querySelector('#personalia')?.classList.add('hidden')
+  root.querySelector('#sec-personalia')?.classList.add('hidden')
+  root.querySelector('#sec-papers')?.classList.add('hidden')
+  root.querySelector('#sec-numbers')?.classList.add('hidden')
   root.querySelector('#stats-card')?.setAttribute('hidden', '')
   root.querySelector('#charts-card')?.setAttribute('hidden', '')
   statusOut(output, 'Checking links…')
@@ -1052,9 +1219,9 @@ async function runRoast(
       return
     }
 
-    // Stream the SSE response. The model emits a one-line JSON header
-    // {name, affiliation} first; parse that into the personalia box and stream the
-    // remainder as the roast (typing effect with a caret).
+    // Stream the SSE response. The model emits a JSON personalia block, then a
+    // line `===ROAST===`, then the roast. Buffer until the marker arrives, parse
+    // and render the structured sections, then stream the remainder as the roast.
     const body = response.body
     if (!body) {
       placeholderOut(output, randomError())
@@ -1062,33 +1229,30 @@ async function runRoast(
     }
     const reader = body.getReader()
     const decoder = new TextDecoder()
+    const SENTINEL = '===ROAST==='
     let buffer = ''
     let raw = ''
-    let headerDone = false
-    let headerEnd = 0
+    let metaDone = false
+    let roastStart = 0
 
-    const tryHeader = (): void => {
-      if (headerDone) return
-      const s = raw.trimStart()
-      if (!s.startsWith('{')) {
-        if (raw.length > 200) {
-          headerDone = true
-          headerEnd = 0
-          fillPersonalia(root, null, sources)
+    const tryMeta = (): void => {
+      if (metaDone) return
+      const idx = raw.indexOf(SENTINEL)
+      if (idx === -1) return
+      metaDone = true
+      roastStart = idx + SENTINEL.length
+      const metaPart = raw.slice(0, idx)
+      const open = metaPart.indexOf('{')
+      const close = metaPart.lastIndexOf('}')
+      let data: Personalia | null = null
+      if (open !== -1 && close > open) {
+        try {
+          data = JSON.parse(metaPart.slice(open, close + 1)) as Personalia
+        } catch {
+          data = null
         }
-        return
       }
-      const close = s.indexOf('}')
-      if (close === -1) return
-      let header: { name?: unknown; affiliation?: unknown } | null = null
-      try {
-        header = JSON.parse(s.slice(0, close + 1)) as typeof header
-      } catch {
-        header = null
-      }
-      headerDone = true
-      headerEnd = header ? raw.length - s.length + close + 1 : 0
-      fillPersonalia(root, header, sources)
+      renderResult(root, data)
     }
 
     for (;;) {
@@ -1110,8 +1274,8 @@ async function runRoast(
           const delta = json.choices?.[0]?.delta?.content
           if (delta) {
             raw += delta
-            tryHeader()
-            if (headerDone) streamOut(output, raw.slice(headerEnd).replace(/^\s+/, ''))
+            tryMeta()
+            if (metaDone) streamOut(output, raw.slice(roastStart).replace(/^\s+/, ''))
           }
         } catch {
           // Partial or non-JSON line; wait for more data.
@@ -1119,20 +1283,21 @@ async function runRoast(
       }
     }
 
-    if (!headerDone) {
-      fillPersonalia(root, null, sources)
-      headerEnd = 0
+    if (!metaDone) {
+      // Model did not follow the format; treat the whole output as the roast.
+      roastStart = 0
+      renderResult(root, null)
     }
-    const roast = raw.slice(headerEnd).trim()
+    const roast = raw.slice(roastStart).replace(/^\s+/, '').trim()
     if (!roast) {
       placeholderOut(output, randomError())
     } else {
       output.className = 'output'
       output.textContent = roast
-      root.querySelector('#personalia')?.classList.remove('hidden')
       renderStatsCard(root, linkStats)
       const chartsCard = root.querySelector<HTMLElement>('#charts-card')
       if (chartsCard) renderCharts(chartsCard, linkCharts)
+      toggleNumbers(root, linkStats, linkCharts)
       root.querySelector('#share')?.classList.remove('hidden')
     }
   } catch {

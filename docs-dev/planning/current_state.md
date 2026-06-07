@@ -12,13 +12,20 @@ This file records what *is* (current reality). The binding design canon is `docs
 - **Front-end shell** — `src/ui.ts` renders the **"Focused Console" UI (Direction A
   redesign)**: two cards — a numbered 2-step **Roast input** (a search-by-name hero
   as the primary input + a collapsible "manual" `<details>` for profile links and
-  paste/upload) and a **Roast output** card (personalia, streamed roast with a
-  caret, stats card, charts, share). Also: **"Try a sample"** (zero-cost canned demo,
-  `src/demo.ts`, no model call), **"Download data"** (`.md` export) beside **Roast
-  me**, and a segmented intensity control (default `spicy`). Warm-palette CSS +
-  Plus Jakarta Sans / Space Mono in `src/style.css`; fonts via `@import`. The roast
-  POSTs `{ profile, intensity, model }` to `WORKER_URL`, streams SSE, and renders
-  the roast / personalia / stats / charts, or an in-character error.
+  paste/upload) and a **Roast output** card. The output is now **four sections**
+  (`036`, spec v1.22): **Personalia** (name, position, current/previous
+  affiliations, research domain, focus keywords, education + Profiles/Grants/Awards
+  subsections), **Profile** (the streamed roast with a caret), **Papers** (main
+  papers with cite counts), and **The numbers** (stats card + charts). Personalia +
+  Papers are **model-extracted**: the roast model emits a JSON block then a
+  `===ROAST===` marker then the roast; the FE buffers to the marker, parses the
+  JSON (`renderResult`), then streams the roast. Profiles are built from the user's
+  link rows; empty fields/sections are omitted. `MAX_OUTPUT_TOKENS` raised to 900.
+  Also: **"Try a sample"** (zero-cost canned demo, `src/demo.ts`, no model call),
+  **"Download data"** (`.md` export) beside **Roast me**, and a segmented intensity
+  control (default `spicy`). Warm-palette CSS + Plus Jakarta Sans / Space Mono in
+  `src/style.css`; fonts via `@import`. The roast POSTs `{ profile, intensity,
+  model }` to `WORKER_URL` and streams SSE, or shows an in-character error.
 - **Worker proxy** (`worker/`) — Cloudflare Worker proxying a **streaming** roast
   to OpenRouter: CORS preflight + origin pinning, validation (method, content
   type, input size, model allowlist), per-IP daily rate limit (hashed IP in
