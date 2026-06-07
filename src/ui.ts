@@ -95,9 +95,6 @@ export function mountApp(root: HTMLElement): void {
                 </div>
                 <ul class="file-list" id="file-list"></ul>
               </div>
-              <div class="manual__group">
-                <button class="chip" id="export-data" type="button"><span class="chip__icon" aria-hidden="true">↓</span> Download retrieved data (.md)</button>
-              </div>
             </div>
           </details>
         </div>
@@ -121,7 +118,10 @@ export function mountApp(root: HTMLElement): void {
                   .join('')}
               </div>
             </div>
-            <button class="btn btn--primary" id="roast" type="button">${copy.roastButton}</button>
+            <div class="action-row__go">
+              <button class="btn btn--ghost" id="export-data" type="button">Download data</button>
+              <button class="btn btn--primary" id="roast" type="button">${copy.roastButton}</button>
+            </div>
           </div>
           <p class="step__hint">${copy.intensityHint}</p>
         </div>
@@ -498,8 +498,30 @@ async function doSearch(
     return
   }
 
+  // One visible entry per source (the top match); the rest go under a foldout so
+  // the user can pick a different person if the top hit may not be them.
+  const bySource = new Map<SourceKind, Candidate[]>()
   for (const { source, candidate } of found) {
-    results.appendChild(searchResultRow(source, candidate, linksContainer))
+    const arr = bySource.get(source) ?? []
+    arr.push(candidate)
+    bySource.set(source, arr)
+  }
+  for (const source of SEARCH_SOURCES) {
+    const cands = bySource.get(source)
+    if (!cands || !cands.length) continue
+    results.appendChild(searchResultRow(source, cands[0], linksContainer))
+    if (cands.length > 1) {
+      const more = document.createElement('details')
+      more.className = 'search__more'
+      const summary = document.createElement('summary')
+      summary.className = 'search__more-summary'
+      summary.textContent = 'See more options if this may not be you'
+      more.appendChild(summary)
+      for (const candidate of cands.slice(1)) {
+        more.appendChild(searchResultRow(source, candidate, linksContainer))
+      }
+      results.appendChild(more)
+    }
   }
   for (const note of notes) {
     const line = document.createElement('p')
@@ -598,6 +620,17 @@ function searchResultRow(
   return row
 }
 
+// After Roast me / Download data, reduce the search results to just the ticked
+// entries (flattened out of any "see more" foldout); drop everything else.
+function collapseSearchToSelected(root: HTMLElement): void {
+  const results = root.querySelector<HTMLElement>('#search-results')
+  if (!results) return
+  const checked = Array.from(results.querySelectorAll<HTMLElement>('.search__result')).filter(
+    (r) => r.querySelector<HTMLInputElement>('.search__check')?.checked,
+  )
+  results.replaceChildren(...checked)
+}
+
 // --- roast ---
 
 // Retrieve every link row authoritatively (cached) and collect its text/stats/
@@ -647,7 +680,7 @@ async function validateLinks(
       texts.push(res.text)
       if (res.stats) stats.push(res.stats)
       if (res.charts) charts.push(res.charts)
-      sources.add(`${detected.source}: ${detected.id}`)
+      sources.add(SOURCE_LABELS[detected.source])
     } else {
       retrieve.className = 'link-row__retrieve is-bad'
       retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
@@ -767,6 +800,7 @@ async function runRoast(
   }
 
   button.disabled = true
+  collapseSearchToSelected(root)
   root.querySelector('#share')?.classList.add('hidden')
   root.querySelector('#personalia')?.classList.add('hidden')
   root.querySelector('#stats-card')?.setAttribute('hidden', '')
@@ -932,6 +966,7 @@ async function exportRetrievedData(
   const original = exportBtn.textContent
   exportBtn.disabled = true
   exportBtn.textContent = 'Retrieving…'
+  collapseSearchToSelected(root)
   try {
     const parts: string[] = [
       '# Retrieved data',

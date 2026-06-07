@@ -138,6 +138,7 @@ textarea.field__text::placeholder { color: var(--faint); }
 /* Settings + action row */
 .action-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
 .action-row__intensity { display: flex; flex-direction: column; }
+.action-row__go { display: flex; align-items: center; gap: 10px; }
 .micro-label { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; display: block; }
 .action-row .btn--primary { padding: 12px 30px; }
 
@@ -227,6 +228,12 @@ textarea.field__text::placeholder { color: var(--faint); }
 .search__retrieve.is-ok { color: var(--ok); }
 .search__retrieve.is-bad { color: var(--error); font-weight: 700; cursor: help; }
 .search__mark { font-weight: 700; font-size: 13px; }
+.search__more { border-top: 1px solid var(--line); }
+.search__more-summary { cursor: pointer; list-style: none; padding: 9px 2px; font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--faint); display: inline-flex; align-items: center; gap: 6px; transition: color .15s; }
+.search__more-summary::-webkit-details-marker { display: none; }
+.search__more-summary::before { content: '›'; color: var(--accent); transition: transform .2s; display: inline-block; }
+.search__more[open] .search__more-summary::before { transform: rotate(90deg); }
+.search__more-summary:hover { color: var(--text); }
 .spinner { width: 12px; height: 12px; border: 2px solid var(--line-2); border-top-color: var(--accent); border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -311,5 +318,6 @@ textarea.field__text::placeholder { color: var(--faint); }
   .action-row { flex-direction: column; align-items: stretch; }
   .action-row .segmented { display: grid; grid-template-columns: repeat(3, 1fr); }
   .action-row .segmented span { text-align: center; }
-  .action-row .btn--primary { width: 100%; }
+  .action-row__go { width: 100%; }
+  .action-row__go .btn { flex: 1; }
 }
