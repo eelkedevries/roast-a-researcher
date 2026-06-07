@@ -276,7 +276,7 @@ export function mountApp(root: HTMLElement): void {
   $<HTMLButtonElement>('#choose').addEventListener('click', () => fileInput.click())
   fileInput.addEventListener('change', () => {
     const files = Array.from(fileInput.files ?? [])
-    if (files.length) void processFiles(files, textarea, setCounter, fileList, sources)
+    if (files.length) void processFiles(files, setCounter, fileList, sources)
     fileInput.value = ''
   })
   dropzone.addEventListener('dragover', (e) => {
@@ -288,7 +288,7 @@ export function mountApp(root: HTMLElement): void {
     e.preventDefault()
     dropzone.classList.remove('over')
     const files = Array.from(e.dataTransfer?.files ?? [])
-    if (files.length) void processFiles(files, textarea, setCounter, fileList, sources)
+    if (files.length) void processFiles(files, setCounter, fileList, sources)
   })
 
   // Personal website(s) — always fully crawled.
@@ -359,9 +359,13 @@ export function mountApp(root: HTMLElement): void {
 
 // --- file upload ---
 
+// Text extracted from each uploaded document, kept in memory (keyed by its
+// file-list element) rather than dumped into the paste box. Collected into the
+// roast input at roast time; entries vanish when the file row is removed.
+const documentTexts = new WeakMap<HTMLElement, string>()
+
 async function processFiles(
   files: File[],
-  textarea: HTMLTextAreaElement,
   setCounter: () => void,
   list: HTMLElement,
   sources: Set<string>,
@@ -397,9 +401,12 @@ async function processFiles(
     list.appendChild(item)
 
     try {
-      appendToInput(textarea, await extractText(file))
+      const extracted = (await extractText(file)).trim()
+      documentTexts.set(item, extracted)
       status.textContent = '✓'
       item.classList.add('is-ok')
+      reason.hidden = false
+      reason.textContent = `Extracted — ${extracted.length.toLocaleString('en-GB')} characters used in the roast`
       sources.add(file.name)
     } catch (err) {
       status.textContent = '✗'
@@ -420,11 +427,12 @@ async function processFiles(
             reason.textContent = msg
           })
             .then((text) => {
-              appendToInput(textarea, text)
+              const t = text.trim()
+              documentTexts.set(item, t)
               status.textContent = '✓'
               item.classList.remove('is-fail')
               item.classList.add('is-ok')
-              reason.textContent = 'Extracted via OCR — review the text before roasting.'
+              reason.textContent = `Extracted via OCR — ${t.length.toLocaleString('en-GB')} characters used`
               sources.add(file.name)
               ocr.remove()
               setCounter()
@@ -442,11 +450,11 @@ async function processFiles(
   }
 }
 
-function appendToInput(textarea: HTMLTextAreaElement, text: string): void {
-  const trimmed = text.trim()
-  if (!trimmed) return
-  const existing = textarea.value.trim()
-  textarea.value = existing ? `${existing}\n\n${trimmed}` : trimmed
+// Collect the in-memory text extracted from all currently-listed documents.
+function collectDocumentTexts(root: HTMLElement): string[] {
+  return Array.from(root.querySelectorAll<HTMLElement>('.file-list__item'))
+    .map((el) => documentTexts.get(el))
+    .filter((t): t is string => !!t && t.trim() !== '')
 }
 
 // --- manual link rows ---
@@ -1379,7 +1387,11 @@ async function runRoast(
     charts: linkCharts,
     papers: linkPapers,
   } = await validateLinks(root, sources)
-  const profile = [textarea.value.trim(), ...linkTexts].filter(Boolean).join('\n\n').trim()
+  const docTexts = collectDocumentTexts(root)
+  const profile = [textarea.value.trim(), ...docTexts, ...linkTexts]
+    .filter(Boolean)
+    .join('\n\n')
+    .trim()
   if (!profile) {
     manual.open = true
     placeholderOut(output, 'Search for a name above, or add a link or paste text to get started.')

@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.27 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.28 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -383,6 +383,13 @@ Thin input. The model roasts only what is present. It does not pad a short input
 with invented detail or generic academic filler, and it does not demand more
 input; a short profile yields a short roast.
 
+Quality bar. Length is dynamic and driven by the **quality**, not the quantity, of
+the material: the roast defaults to short and only grows when there are genuinely
+strong, distinct jokes to make. The mere presence of material (awards, grants,
+degrees, a long CV, many papers) is never itself a reason to joke about it — the
+model omits a topic entirely rather than including a weak, obvious, or generic
+joke. A tight roast of only the best jokes beats a longer, padded one.
+
 Outside knowledge. For a well-known name, the model may draw on general public
 knowledge for recognition and flavour. It must not, however, assert invented
 specifics as fact, and it must not manufacture concrete allegations — misconduct,
@@ -518,8 +525,12 @@ resolves each identifier/URL to its source and asks the Worker to retrieve it,
 and extracts each uploaded file client-side. Each input is then marked — a tick
 when data was retrieved, or a cross plus a brief reason (invalid identifier,
 unsupported URL, nothing found, source error) shown in small print beneath it.
-Retrieved and extracted text is merged into the editable roast input for review
-before generation. Retrieval always goes through the Worker, never the browser.
+**Uploaded documents** (PDF, Word, ODT, txt, md) are extracted client-side and
+their text is held **in memory** — the file row shows a success tick and the
+number of characters extracted, and the text is fed into the roast input at
+generation time **without** being dumped into the visible paste box. Retrieved
+link text is likewise merged into the roast input. Retrieval always goes through
+the Worker, never the browser.
 Identifiers/URLs on known structured hosts resolve to their source API; **any
 other http(s) URL resolves to the generic `website` source**, which the Worker
 fetches and reduces to readable text (title plus body, with scripts/styles

@@ -14,7 +14,9 @@ This file records what *is* (current reality). The binding design canon is `docs
   as the primary input + a collapsible "manual" `<details>` with three groups: a
   dedicated **Personal website** field (forced `website` source = full same-site
   crawl, "+ Add website" for more), **Profile links** (ORCID/OpenAlex/GitHub/SS/DBLP),
-  and **paste text or upload documents** (PDF/Word/ODT/txt/md via `src/extract.ts`))
+  and **paste text or upload documents** (PDF/Word/ODT/txt/md via `src/extract.ts`;
+  extracted **in memory** with a ✓ + char count, fed to the roast without filling
+  the paste box — `documentTexts` WeakMap / `collectDocumentTexts`))
   and a **Roast output** card. The output is now **four sections**
   (`036`, spec v1.22): **Personalia** (name, position, current/previous
   affiliations, research domain, focus keywords, education + Profiles/Grants/Awards
