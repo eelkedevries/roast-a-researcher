@@ -466,6 +466,68 @@ function htmlToText(html: string): { title: string; text: string } {
   return { title, text: body }
 }
 
+// Same-site page links in an HTML document (skips anchors, mailto/tel, asset
+// files, and off-host links). Used to crawl a personal site across its pages.
+function sameSiteLinks(html: string, baseUrl: string): string[] {
+  let host: string
+  try {
+    host = new URL(baseUrl).hostname.replace(/^www\./, '')
+  } catch {
+    return []
+  }
+  const out: string[] = []
+  const re = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html))) {
+    const href = m[1].trim()
+    if (!href || /^(mailto:|tel:|javascript:|#)/i.test(href)) continue
+    let u: URL
+    try {
+      u = new URL(href, baseUrl)
+    } catch {
+      continue
+    }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') continue
+    if (u.hostname.replace(/^www\./, '') !== host) continue
+    if (
+      /\.(pdf|docx?|pptx?|xlsx?|csv|zip|gz|rar|png|jpe?g|gif|svg|webp|avif|mp4|webm|mp3|wav|css|js|ico|woff2?|ttf)(\?|#|$)/i.test(
+        u.pathname,
+      )
+    )
+      continue
+    u.hash = ''
+    out.push(u.toString())
+  }
+  return out
+}
+
+// Best-effort fetch of a single page's HTML (null on any failure / non-HTML /
+// oversize). Used for the crawl's secondary pages; the seed uses detailed errors.
+async function fetchPageHtml(target: string): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 6000)
+  try {
+    const res = await fetch(target, {
+      headers: {
+        'User-Agent': 'roast-a-researcher (+https://github.com/eelkedevries/roast-a-researcher)',
+        Accept: 'text/html,application/xhtml+xml,text/plain',
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    })
+    if (!res.ok) return null
+    if (!/text\/html|application\/xhtml|text\/plain/i.test(res.headers.get('Content-Type') ?? '')) {
+      return null
+    }
+    if (Number(res.headers.get('Content-Length') ?? '0') > 5_000_000) return null
+    return await res.text()
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function retrieveWebsite(
   input: string,
   env: Env,
@@ -484,6 +546,7 @@ async function retrieveWebsite(
     return jsonError('invalid_identifier', 'That address cannot be fetched.', 400, allowOrigin)
   }
 
+  // Fetch the given page first, with detailed errors so a bad link reports clearly.
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 8000)
   let res: Response
@@ -501,44 +564,93 @@ async function retrieveWebsite(
     return jsonError('source_error', 'Could not reach that website (it may be slow or blocking requests).', 502, allowOrigin)
   }
   clearTimeout(timer)
-
   if (!res.ok) {
     return jsonError('source_error', `That website returned an error (${res.status}).`, 502, allowOrigin)
   }
-  const ctype = res.headers.get('Content-Type') ?? ''
-  if (!/text\/html|application\/xhtml|text\/plain/i.test(ctype)) {
+  if (!/text\/html|application\/xhtml|text\/plain/i.test(res.headers.get('Content-Type') ?? '')) {
     return jsonError('unsupported', 'That link is not a readable web page (HTML expected). Paste the text instead.', 415, allowOrigin)
   }
-  const declared = Number(res.headers.get('Content-Length') ?? '0')
-  if (declared && declared > 5_000_000) {
+  if (Number(res.headers.get('Content-Length') ?? '0') > 5_000_000) {
     return jsonError('too_large', 'That page is too large to fetch. Paste the relevant text instead.', 413, allowOrigin)
   }
-
-  let html: string
+  let seedHtml: string | null
   try {
-    html = await res.text()
+    seedHtml = await res.text()
   } catch {
     return jsonError('source_error', 'Could not read that website.', 502, allowOrigin)
   }
 
-  const { title, text } = htmlToText(html)
+  // Crawl the rest of the site (same host): start from the given page and the site
+  // root, following internal links (CV, media, etc.). Bounded by page count, a
+  // per-page and total character budget, and an overall time deadline.
   const maxChars = Number(env.MAX_INPUT_CHARS) || 12000
-  const trimmed = text.slice(0, Math.min(maxChars, 8000))
-  if (trimmed.replace(/\s/g, '').length < 40) {
+  const TOTAL_BUDGET = Math.min(maxChars, 24000)
+  const PER_PAGE = 6000
+  const MAX_PAGES = 12
+  const deadline = Date.now() + 20000
+  const origin = `${url.protocol}//${url.host}`
+  const pageKey = (u: string): string => {
+    try {
+      const x = new URL(u)
+      return x.hostname.replace(/^www\./, '') + (x.pathname.replace(/\/+$/, '') || '/')
+    } catch {
+      return u
+    }
+  }
+  const seen = new Set<string>()
+  const queue: string[] = [url.toString()]
+  if (pageKey(`${origin}/`) !== pageKey(url.toString())) queue.push(`${origin}/`)
+
+  const pages: Array<{ url: string; title: string; text: string }> = []
+  let total = 0
+  while (queue.length && pages.length < MAX_PAGES && total < TOTAL_BUDGET && Date.now() < deadline) {
+    const next = queue.shift() as string
+    const key = pageKey(next)
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    let pageHtml: string | null
+    if (seedHtml !== null && key === pageKey(url.toString())) {
+      pageHtml = seedHtml
+      seedHtml = null
+    } else {
+      pageHtml = await fetchPageHtml(next)
+    }
+    if (!pageHtml) continue
+
+    const { title, text } = htmlToText(pageHtml)
+    const slice = text.slice(0, PER_PAGE)
+    if (slice.replace(/\s/g, '').length >= 30) {
+      pages.push({ url: next, title, text: slice })
+      total += slice.length
+    }
+    if (pages.length < MAX_PAGES) {
+      for (const link of sameSiteLinks(pageHtml, next)) {
+        if (!seen.has(pageKey(link))) queue.push(link)
+      }
+    }
+  }
+
+  if (!pages.length) {
     return jsonError(
       'not_found',
-      'No readable text found on that page (it may be image-only or rendered by JavaScript). Paste the text instead.',
+      'No readable text found on that site (it may be image-only or rendered by JavaScript). Paste the text instead.',
       404,
       allowOrigin,
     )
   }
 
-  const out = [`Website: ${title || url.hostname} (${url.toString()})`, '', trimmed].join('\n')
+  const header = `Website: ${pages[0].title || url.hostname} (${origin}) — ${pages.length} page${
+    pages.length === 1 ? '' : 's'
+  } retrieved`
+  const body = pages.map((p) => `## ${p.title || p.url}\n${p.url}\n${p.text}`).join('\n\n')
+  const out = `${header}\n\n${body}`.slice(0, TOTAL_BUDGET)
   return new Response(JSON.stringify({ text: out }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
   })
 }
+
 
 function parseGithubUsername(input: string): string | null {
   let s = input.trim()

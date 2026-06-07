@@ -115,9 +115,11 @@ This file records what *is* (current reality). The binding design canon is `docs
   `website` source** (`036`): the Worker fetches it and flattens the HTML to
   readable text, guarded by http(s)-only / 8s timeout / size cap / HTML
   content-type / blocked-host (SSRF) checks. Reverses the earlier no-scraping
-  stance (spec v1.21). Static personal/university pages work well; JS-rendered or
-  login-walled sites (LinkedIn, Scholar) often return little and fail with a
-  "paste instead" reason.
+  stance (spec v1.21). For a **personal site the Worker now crawls the whole site**
+  (v1.26): from the given page + site root it follows same-host links (CV, media,
+  …) and combines their text, bounded by page/char caps and a time deadline. Static
+  personal/university pages work well; JS-rendered or login-walled sites (LinkedIn,
+  Scholar) often return little and fail with a "paste instead" reason.
 - **OpenAlex now needs a free API key** (usage-based pricing, re-verified
   2026-06-07: anonymous = $0 budget → HTTP 429; free key = $1/day, single-ID
   lookups $0). Set `OPENALEX_API_KEY` (Cloudflare secret) for all OpenAlex

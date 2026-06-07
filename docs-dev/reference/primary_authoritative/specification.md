@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.25 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.26 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -584,10 +584,15 @@ Worker under the guards described in Source inputs and validation:
 - **Website (any URL)** — for a host with no structured source, the Worker fetches
   the page server-side and flattens the HTML to readable text (title + body,
   scripts/styles/comments removed; done with string ops, as the Worker has no DOM
-  parser). Guarded by the http(s)-only / timeout / size-cap / content-type /
-  blocked-host (SSRF) rules above. No identity anchor and no metrics — it is raw
-  page text — so it suits self-curated profile and personal/university pages; the
-  user reviews the merged text before roasting.
+  parser). For a **personal site it also crawls the rest of the site**: starting
+  from the given page and the site root, it follows **same-host** internal links
+  (e.g. `/cv/`, `/media/`) and combines their text, so the whole profile is used
+  rather than a single page. The crawl is bounded — same host only, asset files and
+  off-site links skipped, and capped by page count, per-page and total character
+  budgets, and an overall time deadline. Guarded by the http(s)-only / timeout /
+  size-cap / content-type / blocked-host (SSRF) rules above. No identity anchor and
+  no metrics — it is raw page text — so it suits self-curated profile and
+  personal/university pages; the user reviews the merged text before roasting.
 - **Crossref** — works by DOI or author, used as enrichment once an identifier or
   DOI list exists; called from the Worker with a contact `mailto`.
 - **Semantic Scholar** — the free, keyless Graph API. Used two ways: (a) `/paper/batch`
