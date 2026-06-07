@@ -28,7 +28,7 @@ RETRIEVE_CACHE_TTL = "86400"
 # URI come from your registered ORCID app; the redirect URI must exactly match
 # the Worker's /auth/orcid/callback path.
 ORCID_OAUTH_BASE = "https://orcid.org"
-ORCID_CLIENT_ID = ""
+ORCID_CLIENT_ID = "APP-ILUQFY2R5DFRQLKU"
 ORCID_REDIRECT_URI = "https://roast-a-researcher.eelkedevries.workers.dev/auth/orcid/callback"
 # Where to send the browser back to after a successful login (the Pages app).
 APP_URL = "https://eelkedevries.github.io/roast-a-researcher/"
