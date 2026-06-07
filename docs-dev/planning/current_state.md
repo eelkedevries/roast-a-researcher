@@ -54,6 +54,23 @@ This file records what *is* (current reality). The binding design canon is `docs
 
 ## In progress / next
 
+- **ORCID login → verified badge (`033`–`035`, spec v1.20)** — an **optional**,
+  **session-only** "Log in with ORCID" feature. Worker runs the OAuth
+  authorization-code flow with the minimal `/authenticate` scope (returns only the
+  iD; no private data, no database): `/auth/orcid/login` → ORCID → `/auth/orcid/callback`
+  mints a short-lived **HMAC-signed token** (`SESSION_SECRET`) handed back in a URL
+  fragment; `/auth/me` validates it. The front end (`src/auth.ts`) stores the token
+  in `localStorage` and sends it as a `Bearer` header (no cookie — the Pages and
+  Worker origins differ, so a session cookie would be a blocked third-party cookie).
+  A header control shows login/logout state; when the logged-in iD matches a
+  selected ORCID link row, the personalia Name row shows a cosmetic "✓ ORCID-verified"
+  badge. New non-secret vars (`ORCID_OAUTH_BASE` defaulting to **sandbox**,
+  `ORCID_CLIENT_ID`, `ORCID_REDIRECT_URI`, `APP_URL`) + two secrets
+  (`ORCID_CLIENT_SECRET`, `SESSION_SECRET`); login is disabled when unset.
+  Built + type-checked (`npm run check`, `wrangler deploy --dry-run`). **Human
+  actions pending:** register the ORCID OAuth app, set the two Cloudflare secrets
+  and `ORCID_CLIENT_ID`, then verify the live round-trip against ORCID sandbox
+  (the build container cannot reach `orcid.org`).
 - **Front end redesigned to "Focused Console" (Direction A)** from a design handoff,
   shipped as `feat:` commits (not numbered prompts); `src/ui.ts` + `src/style.css`
   rewritten, `src/charts.ts` gained a 5th "Top venues" chart, `032_pdf_ocr` added
