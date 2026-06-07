@@ -9,7 +9,7 @@ compatibility_date = "2026-06-05"
 ALLOW_ORIGIN = "https://eelkedevries.github.io"
 MODEL_ALLOWLIST = "google/gemini-2.5-flash-lite"
 MAX_INPUT_CHARS = "12000"
-DAILY_LIMIT = "10"
+DAILY_LIMIT = "50"
 # Contact for the OpenAlex "polite pool" — steadier per-contact rate limits than
 # the shared common pool (which a Cloudflare egress IP can exhaust). Any contact
 # string works; change it to a real inbox you prefer.
