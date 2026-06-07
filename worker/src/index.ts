@@ -117,7 +117,7 @@ function buildSystemPrompt(intensity: Intensity): string {
     '- Roast only what is present in the supplied text. Do not pad a thin profile with invented detail or generic academic filler, and do not demand more input; a short profile yields a short roast.',
     '- Target the work and/or the persona — publications, venues, methods, jargon, grant-chasing, self-branding, the gap between presentation and record — whatever is funniest.',
     '- When the profile includes grants/funding or awards/honours, explicitly bring them into the roast — name and mock the actual grants and awards — rather than leaving them only in the structured fields.',
-    '- Write in British English. Let the length follow the material: write only as much as there is genuinely funny, on-target material to justify, and no more. Little to work with → a short, sharp roast of a few sentences; a rich profile full of strong targets → a longer one of several paragraphs (up to ~600 words). Quality over quantity — every line must land; never pad to reach a length, and cut anything that is not funny.',
+    '- Write in British English. DEFAULT TO SHORT. Most profiles are unremarkable and deserve only a few cutting sentences (roughly 60–150 words). Only go longer when the material genuinely offers many distinct, strong jokes — and stop the instant the good material runs out (hard ceiling ~600 words). Length must be earned by quality material, never by padding, filler, or restating the same joke; when in doubt, cut. A tight short roast always beats a long mediocre one.',
     '',
     `Intensity: ${intensity}. ${intensityDirective(intensity)}`,
     '',
