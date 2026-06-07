@@ -429,7 +429,34 @@ async function retrieveOrcid(
     for (const t of titles) lines.push(`- ${t}`)
   }
 
-  return new Response(JSON.stringify({ text: lines.join('\n') }), {
+  // Auto-resolve the OpenAlex profile from the ORCID iD (free, keyless), so
+  // citation metrics, the stats card, and charts appear from an ORCID alone —
+  // without separately adding an OpenAlex link.
+  let stats: OpenAlexResult['stats'] | undefined
+  let charts: OpenAlexResult['charts']
+  try {
+    const oaHeaders = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
+    const lookup = await fetch(
+      openalexUrl('authors', env, { filter: `orcid:${id}`, 'per-page': '1' }),
+      { headers: oaHeaders },
+    )
+    if (lookup.ok) {
+      const data = (await lookup.json()) as { results?: Array<{ id?: string }> }
+      const oaId = data.results?.[0]?.id ? parseOpenalexId(data.results[0].id) : null
+      if (oaId) {
+        const oa = await buildOpenalex(oaId, env, oaHeaders)
+        if (oa) {
+          lines.push('', oa.text)
+          stats = oa.stats
+          charts = oa.charts
+        }
+      }
+    }
+  } catch {
+    // OpenAlex enrichment is best-effort; the ORCID record stands on its own.
+  }
+
+  return new Response(JSON.stringify({ text: lines.join('\n'), stats, charts }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
   })
@@ -830,35 +857,27 @@ async function openalexChartData(
   return Object.keys(charts).length ? charts : undefined
 }
 
-async function retrieveOpenalex(
-  input: string,
+interface OpenAlexResult {
+  text: string
+  stats: { source: string; title: string; entries: Array<{ label: string; value: string }> }
+  charts: Record<string, unknown> | undefined
+}
+
+// Builds the full OpenAlex result (roast text + stats + chart data) for a known
+// author id, or null when the author cannot be fetched. Used directly by the
+// OpenAlex /retrieve path and reused to auto-resolve OpenAlex from an ORCID iD.
+async function buildOpenalex(
+  id: string,
   env: Env,
-  allowOrigin: string,
-): Promise<Response> {
-  const id = parseOpenalexId(input)
-  if (!id) {
-    return jsonError(
-      'invalid_identifier',
-      'That is not a valid OpenAlex author ID or URL.',
-      400,
-      allowOrigin,
-    )
-  }
-
-  const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
-
+  headers: Record<string, string>,
+): Promise<OpenAlexResult | null> {
   let authorRes: Response
   try {
     authorRes = await fetch(openalexUrl(`authors/${id}`, env), { headers })
   } catch {
-    return jsonError('source_error', 'Could not reach OpenAlex.', 502, allowOrigin)
+    return null
   }
-  if (authorRes.status === 404) {
-    return jsonError('not_found', 'No OpenAlex author with that ID.', 404, allowOrigin)
-  }
-  if (!authorRes.ok) {
-    return jsonError('source_error', 'OpenAlex returned an error.', 502, allowOrigin)
-  }
+  if (!authorRes.ok) return null
 
   const author = (await authorRes.json()) as {
     display_name?: string
@@ -1030,7 +1049,30 @@ async function retrieveOpenalex(
   const trends = trendSummary(yearPoints, dominantVenue)
   if (trends.length) lines.push('Trends:', ...trends)
 
-  return new Response(JSON.stringify({ text: lines.join('\n'), stats, charts }), {
+  return { text: lines.join('\n'), stats, charts }
+}
+
+// OpenAlex /retrieve: validate the id, build the result, wrap as a Response.
+async function retrieveOpenalex(
+  input: string,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
+  const id = parseOpenalexId(input)
+  if (!id) {
+    return jsonError(
+      'invalid_identifier',
+      'That is not a valid OpenAlex author ID or URL.',
+      400,
+      allowOrigin,
+    )
+  }
+  const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
+  const result = await buildOpenalex(id, env, headers)
+  if (!result) {
+    return jsonError('not_found', 'No OpenAlex author with that ID, or OpenAlex is unavailable.', 404, allowOrigin)
+  }
+  return new Response(JSON.stringify(result), {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
   })

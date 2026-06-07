@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.9 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
+**Version:** 1.10 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -443,7 +443,10 @@ scraping:
   `Accept: application/json` header — no token required. A read-public
   `ORCID_TOKEN` may optionally be held server-side in the Worker to raise rate
   limits, but retrieval does not depend on it. CORS support and any token flow are
-  re-verified at build.
+  re-verified at build. An ORCID retrieval also auto-resolves the matching OpenAlex
+  author (via `authors?filter=orcid:`), so adding an ORCID iD alone yields the
+  OpenAlex citation metrics, stats card, and charts without a separate OpenAlex
+  input.
 - **OpenAlex** — author metrics (`works_count`, `cited_by_count`, and
   `summary_stats.h_index` / `i10_index`, which are distinct fields;
   `cited_by_count` is total citations, not an h-index) and works. Earlier reports
