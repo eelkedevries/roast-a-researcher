@@ -32,7 +32,10 @@ This file records what *is* (current reality). The binding design canon is `docs
   `papers[]` (ORCID works+DOIs, a ~50-work OpenAlex list, Semantic Scholar papers,
   DBLP publications); the FE `mergePapers` de-dupes by DOI/normalised title, keeps
   the max citations, and renders the combined list (overriding model papers when
-  any structured papers exist). Default
+  any structured papers exist). OpenAlex paper fetch raised to 200; each paper has
+  a **"not mine" checkbox** (OpenAlex mis-attributes some) — marking papers and
+  pressing **Re-roast** sends an `exclude` list that the Worker injects into the
+  **system prompt** (trusted channel, not the untrusted profile) to ignore them. Default
   model is `google/gemini-2.5-flash`; the roast length is **dynamic** — it scales
   with how much genuinely funny, on-target material there is (a few sentences up to
   ~600 words), never padded — so `MAX_OUTPUT_TOKENS` is 1500.

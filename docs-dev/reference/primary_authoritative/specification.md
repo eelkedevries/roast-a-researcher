@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.26 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.27 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -445,7 +445,12 @@ The output is organised into four sections, in order:
    merged in), sorted by citations then year. Each source returns a structured
    `papers[]`; the front end does the merge. This overrides the model's per-source
    extraction whenever any structured papers are present (pasted text / websites
-   still fall back to the model's `papers`).
+   still fall back to the model's `papers`). Each paper has a **"not mine"
+   checkbox**: sources (notably OpenAlex) sometimes mis-attribute papers to the
+   wrong author, so the user can mark those and **re-roast**. The marked titles are
+   sent as a separate `exclude` field and injected into the **system prompt** (a
+   trusted channel — never via the untrusted profile text), instructing the model
+   to ignore them.
 4. **The numbers** — the stats card and charts (below).
 
 Personalia and Papers are produced by the model as a **structured JSON block

@@ -165,7 +165,9 @@ export function mountApp(root: HTMLElement): void {
 
         <section class="rsec hidden" id="sec-papers">
           <h2 class="rsec__h">Papers</h2>
+          <p class="papers-hint">Tick any that aren't this researcher's (data sources sometimes mis-attribute), then re-roast.</p>
           <ol class="papers" id="papers"></ol>
+          <button class="btn btn--ghost hidden" id="papers-reroast" type="button">Re-roast without marked papers</button>
         </section>
 
         <section class="rsec hidden" id="sec-numbers">
@@ -255,9 +257,10 @@ export function mountApp(root: HTMLElement): void {
   }
   textarea.addEventListener('input', setCounter)
 
-  roastBtn.addEventListener('click', () => {
-    void runRoast(textarea, root, output, roastBtn, sources, manual)
-  })
+  triggerRoast = () => void runRoast(textarea, root, output, roastBtn, sources, manual)
+  roastBtn.addEventListener('click', () => triggerRoast?.())
+  // Re-roast from the Papers section after marking mis-attributed papers.
+  $<HTMLButtonElement>('#papers-reroast').addEventListener('click', () => triggerRoast?.())
 
   // Try a sample: the zero-cost canned demo (no model call), seeded so the user
   // can see the seeded profile in the manual panel.
@@ -316,6 +319,8 @@ export function mountApp(root: HTMLElement): void {
     statsCard.setAttribute('hidden', '')
     chartsCard.setAttribute('hidden', '')
     sources.clear()
+    excludedPaperKeys.clear()
+    lastRenderedPapers = []
   }
   const runSearch = (): void => {
     resetInputs()
@@ -1106,19 +1111,59 @@ function renderSubList(root: HTMLElement, secSel: string, listSel: string, items
   sec.classList.toggle('hidden', items.length === 0)
 }
 
+// Papers the user has marked as "not theirs" (by normalised title); excluded from
+// the roast on re-roast. Persists across re-roasts, cleared on a new search.
+const excludedPaperKeys = new Set<string>()
+let lastRenderedPapers: Paper[] = []
+const paperKey = (title: string): string => title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+// Re-runs the current roast (set by mountApp); used by the Papers re-roast button.
+let triggerRoast: (() => void) | null = null
+
+function updateReroastButton(root: HTMLElement): void {
+  const btn = root.querySelector<HTMLButtonElement>('#papers-reroast')
+  if (!btn) return
+  const n = excludedPaperKeys.size
+  btn.classList.toggle('hidden', n === 0)
+  btn.textContent = `Re-roast without ${n} marked paper${n === 1 ? '' : 's'}`
+}
+
 function renderPapers(root: HTMLElement, papers: Paper[]): void {
   const sec = root.querySelector<HTMLElement>('#sec-papers')
   const ol = root.querySelector<HTMLElement>('#papers')
   if (!sec || !ol) return
+  lastRenderedPapers = papers
   ol.textContent = ''
   for (const p of papers) {
     const title = asStr(p?.title)
     if (!title) continue
+    const key = paperKey(title)
     const li = document.createElement('li')
+    li.className = 'paper'
+    if (excludedPaperKeys.has(key)) li.classList.add('excluded')
+
+    const label = document.createElement('label')
+    label.className = 'paper__mark'
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    cb.checked = excludedPaperKeys.has(key)
+    cb.title = "Tick if this paper is not by this researcher"
+    cb.addEventListener('change', () => {
+      if (cb.checked) excludedPaperKeys.add(key)
+      else excludedPaperKeys.delete(key)
+      li.classList.toggle('excluded', cb.checked)
+      updateReroastButton(root)
+    })
+    const markText = document.createElement('span')
+    markText.className = 'paper__mark-text'
+    markText.textContent = 'not mine'
+    label.append(cb, markText)
+
+    const body = document.createElement('div')
+    body.className = 'paper__body'
     const t = document.createElement('span')
     t.className = 'paper__title'
     t.textContent = title
-    li.appendChild(t)
+    body.appendChild(t)
     const bits: string[] = []
     const venue = asStr(p?.venue)
     if (venue) bits.push(venue)
@@ -1129,11 +1174,13 @@ function renderPapers(root: HTMLElement, papers: Paper[]): void {
       const meta = document.createElement('span')
       meta.className = 'paper__meta'
       meta.textContent = metaText
-      li.append(document.createElement('br'), meta)
+      body.append(document.createElement('br'), meta)
     }
+    li.append(label, body)
     ol.appendChild(li)
   }
   sec.classList.toggle('hidden', ol.children.length === 0)
+  updateReroastButton(root)
 }
 
 // Show or hide the "The numbers" section based on whether any stats/charts rendered.
@@ -1346,6 +1393,12 @@ async function runRoast(
   }
   statusOut(output, 'Roasting…')
 
+  // Papers the user has marked as not theirs (from a previous render): sent as a
+  // trusted exclusion list so the model ignores mis-attributed works.
+  const exclude = lastRenderedPapers
+    .filter((p) => p.title && excludedPaperKeys.has(paperKey(p.title)))
+    .map((p) => p.title as string)
+
   try {
     const response = await fetch(config.workerUrl, {
       method: 'POST',
@@ -1354,6 +1407,7 @@ async function runRoast(
         profile,
         intensity: selectedIntensity(root),
         model: config.defaultModel,
+        exclude,
       }),
     })
 
@@ -1467,7 +1521,7 @@ async function runRoast(
       // Structured papers from all sources, merged and de-duplicated, take
       // precedence over the model's per-source extraction.
       const merged = mergePapers(linkPapers)
-      if (merged.length) renderPapers(root, merged.slice(0, 100))
+      if (merged.length) renderPapers(root, merged.slice(0, 300))
       renderStatsCard(root, linkStats)
       const chartsCard = root.querySelector<HTMLElement>('#charts-card')
       if (chartsCard) renderCharts(chartsCard, linkCharts)

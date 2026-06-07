@@ -297,10 +297,18 @@ textarea.field__text::placeholder { color: var(--faint); }
 .plist { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; color: var(--text); }
 .plist a { color: var(--accent); text-decoration: none; word-break: break-all; }
 .plist a:hover { text-decoration: underline; }
-.papers { margin: 0; padding-left: 20px; display: grid; gap: 12px; }
-.papers li { font-size: 13.5px; color: var(--text); }
+.papers-hint { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+.papers { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.papers li.paper { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--text); }
+.paper__mark { display: inline-flex; align-items: center; gap: 4px; flex: none; cursor: pointer; font-family: var(--mono); font-size: 10px; letter-spacing: .03em; color: var(--faint); padding-top: 1px; }
+.paper__mark input { cursor: pointer; }
+.paper__body { flex: 1; }
+.paper.excluded .paper__body { opacity: .45; text-decoration: line-through; }
+.paper.excluded .paper__mark { color: var(--bad); }
 .paper__title { font-weight: 600; }
 .paper__meta { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+#papers-reroast { margin-top: 14px; }
+#papers-reroast.hidden { display: none; }
 .personalia { display: grid; gap: 4px; margin: 0; }
 .personalia.hidden { display: none; }
 .personalia .row { display: flex; gap: 12px; font-size: 13px; }
