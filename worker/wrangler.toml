@@ -23,10 +23,11 @@ RETRIEVE_CACHE_TTL = "86400"
 # researcher's profile as verified for the current session only (no database).
 # These four are non-secret and public by OAuth design; the two secrets
 # (ORCID_CLIENT_SECRET, SESSION_SECRET) are set with `wrangler secret put`.
-# Point ORCID_OAUTH_BASE at the sandbox first; switch to https://orcid.org for
-# production. The client ID and redirect URI come from your registered ORCID app;
-# the redirect URI must exactly match the Worker's /auth/orcid/callback path.
-ORCID_OAUTH_BASE = "https://sandbox.orcid.org"
+# ORCID_OAUTH_BASE is the production host; use https://sandbox.orcid.org to test
+# against the sandbox (a separate account namespace). The client ID and redirect
+# URI come from your registered ORCID app; the redirect URI must exactly match
+# the Worker's /auth/orcid/callback path.
+ORCID_OAUTH_BASE = "https://orcid.org"
 ORCID_CLIENT_ID = ""
 ORCID_REDIRECT_URI = "https://roast-a-researcher.eelkedevries.workers.dev/auth/orcid/callback"
 # Where to send the browser back to after a successful login (the Pages app).
