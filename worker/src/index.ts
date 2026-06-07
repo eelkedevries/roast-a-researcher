@@ -31,6 +31,7 @@ export interface Env {
   ORCID_TOKEN?: string
   OPENALEX_API_KEY?: string
   OPENALEX_MAILTO?: string
+  RETRIEVE_CACHE_TTL?: string
 }
 
 type Intensity = 'mild' | 'medium' | 'spicy'
@@ -144,20 +145,57 @@ async function handleRetrieve(
   if (!id) {
     return jsonError('bad_request', 'No identifier supplied.', 400, allowOrigin)
   }
+
+  // Cache (018): public-record retrievals are cached in KV with a short TTL to cut
+  // repeat external API calls, latency and usage-based cost. Only the assembled
+  // public data is cached — never user-pasted/uploaded text and never the roast
+  // (which is always generated fresh). Cache key is namespaced `rc:` (the daily
+  // rate-limit counter uses `rl:`); identifiers are normalised to lower case.
+  const cacheKey = `rc:${source}:${id.toLowerCase()}`
+  const cached = await env.RATE_LIMIT.get(cacheKey)
+  if (cached) {
+    return new Response(cached, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT', ...corsHeaders(allowOrigin) },
+    })
+  }
+
+  let res: Response
   switch (source) {
     case 'github':
-      return retrieveGithub(id, env, allowOrigin)
+      res = await retrieveGithub(id, env, allowOrigin)
+      break
     case 'orcid':
-      return retrieveOrcid(id, env, allowOrigin)
+      res = await retrieveOrcid(id, env, allowOrigin)
+      break
     case 'openalex':
-      return retrieveOpenalex(id, env, allowOrigin)
+      res = await retrieveOpenalex(id, env, allowOrigin)
+      break
     case 'semanticscholar':
-      return retrieveSemanticScholar(id, allowOrigin)
+      res = await retrieveSemanticScholar(id, allowOrigin)
+      break
     case 'dblp':
-      return retrieveDblp(id, allowOrigin)
+      res = await retrieveDblp(id, allowOrigin)
+      break
     default:
       return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
   }
+
+  // Cache only successful retrievals; errors are never cached.
+  if (res.status === 200) {
+    const text = await res.clone().text()
+    const ttl = Number(env.RETRIEVE_CACHE_TTL) || 86400
+    try {
+      await env.RATE_LIMIT.put(cacheKey, text, { expirationTtl: ttl })
+    } catch {
+      // Caching is best-effort; a write failure must not fail the retrieval.
+    }
+    return new Response(text, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'X-Cache': 'MISS', ...corsHeaders(allowOrigin) },
+    })
+  }
+  return res
 }
 
 function parseGithubUsername(input: string): string | null {

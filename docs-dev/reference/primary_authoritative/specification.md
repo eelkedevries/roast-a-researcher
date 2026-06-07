@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.15 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.16 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -190,10 +190,21 @@ default-slug decision.
 ### Data flow and statelessness
 
 Supplied text flows browser → Worker → OpenRouter → model provider, and the roast
-flows back the same way. The Worker retains nothing after a request except the
-rate-limit counter (a hashed IP and a count). No profile text is logged or
-stored. The front end keeps the pasted/extracted text and the roast only in page
-memory for the session.
+flows back the same way. After a request the Worker retains only: the rate-limit
+counter (a hashed IP and a count); and a short-TTL cache of **public-record
+retrievals** (see below). It never logs or stores user-pasted/uploaded profile
+text, and **never caches the roast** (always generated fresh per request). The
+front end keeps the pasted/extracted text and the roast only in page memory for
+the session.
+
+**Public-record retrieval cache.** Retrievals from public APIs (ORCID, OpenAlex,
+GitHub, Semantic Scholar, DBLP) are cached in Workers KV, keyed by `source:id`
+(prefix `rc:`), with a short TTL (`RETRIEVE_CACHE_TTL`, default 24h). This caches
+only data already public and derived from those APIs — to cut repeat external
+calls, latency, and usage-based cost (notably OpenAlex's per-request budget). It
+explicitly excludes user-pasted/uploaded text and the generated roast. This is a
+deliberate, scoped relaxation of strict statelessness, recorded in Locked
+decisions; errors are never cached.
 
 ### Error and failure handling
 
@@ -272,6 +283,8 @@ Worker config, `worker/wrangler.toml` `[vars]` (committed, non-secret):
 | `DAILY_LIMIT` | roasts per hashed IP per UTC day |
 | `MODEL_ALLOWLIST` | comma-separated slugs the Worker will forward |
 | `MAX_INPUT_CHARS` | authoritative input cap |
+| `OPENALEX_MAILTO` | contact for OpenAlex requests |
+| `RETRIEVE_CACHE_TTL` | seconds to cache a public-record retrieval in KV (default 24h) |
 
 Worker secrets (not committed; `wrangler secret put`, or `worker/.dev.vars`
 locally): `OPENROUTER_API_KEY`, `IP_HASH_SALT`, `OPENALEX_API_KEY` (free key,
@@ -517,6 +530,9 @@ which is comedic by design but still bounded by the content rules above.
 - Client IP from `CF-Connecting-IP` only, hashed with a salt before use.
 - The per-IP daily cap uses Workers KV (or a Durable Object), not the native
   rate-limiting binding, whose period is limited to 10 or 60 seconds.
+- Public-record retrievals (ORCID/OpenAlex/GitHub/Semantic Scholar/DBLP) are cached
+  in KV with a short TTL (a scoped relaxation of strict statelessness). Only public
+  API-derived data is cached — never user text and never the roast.
 - Three spend controls: account balance, per-key daily budget, Worker per-IP cap.
 - SSE is relayed by passing the upstream body through without buffering.
 - CORS is pinned to the exact Pages origin; the budget caps, not origin pinning,

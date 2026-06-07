@@ -14,6 +14,10 @@ DAILY_LIMIT = "10"
 # the shared common pool (which a Cloudflare egress IP can exhaust). Any contact
 # string works; change it to a real inbox you prefer.
 OPENALEX_MAILTO = "eelkedevries@users.noreply.github.com"
+# How long (seconds) to cache a public-record retrieval in KV (018). Public
+# records change slowly; this caps repeat external API calls and cost. The roast
+# and any user-pasted text are never cached. Default 24h.
+RETRIEVE_CACHE_TTL = "86400"
 
 # Per-IP daily rate-limit counter (key: rl:<UTC-date>:<hashed-ip>, TTL = end of day).
 [[kv_namespaces]]
