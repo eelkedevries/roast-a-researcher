@@ -9,30 +9,39 @@ This file records what *is* (current reality). The binding design canon is `docs
 ## Systems
 
 - **Build/dev scaffold** — Vite + TypeScript static site, building to `dist/`.
-- **Front-end shell** — static roast UI (`src/main.ts`, `src/ui.ts`): paste field
-  with live character count, three-level intensity control (default `spicy`),
-  roast output area, profile-source helper lines, self-directed framing, and the
-  privacy notice. Public build config in `src/config.ts`. The roast button POSTs
-  `{ profile, intensity, model }` to `WORKER_URL` and renders the roast or an
-  in-character error.
+- **Front-end shell** — `src/ui.ts` renders the **"Focused Console" UI (Direction A
+  redesign)**: two cards — a numbered 2-step **Roast input** (a search-by-name hero
+  as the primary input + a collapsible "manual" `<details>` for profile links and
+  paste/upload) and a **Roast output** card (personalia, streamed roast with a
+  caret, stats card, charts, share). Also: **"Try a sample"** (zero-cost canned demo,
+  `src/demo.ts`, no model call), **"Download data"** (`.md` export) beside **Roast
+  me**, and a segmented intensity control (default `spicy`). Warm-palette CSS +
+  Plus Jakarta Sans / Space Mono in `src/style.css`; fonts via `@import`. The roast
+  POSTs `{ profile, intensity, model }` to `WORKER_URL`, streams SSE, and renders
+  the roast / personalia / stats / charts, or an in-character error.
 - **Worker proxy** (`worker/`) — Cloudflare Worker proxying a **streaming** roast
   to OpenRouter: CORS preflight + origin pinning, validation (method, content
   type, input size, model allowlist), per-IP daily rate limit (hashed IP in
-  Workers KV, plain `429`), a server-side system prompt with the content rules +
-  intensity, then `stream: true` relayed as SSE without buffering. Secrets
-  `OPENROUTER_API_KEY` + `IP_HASH_SALT`.
+  Workers KV, plain `429`, `DAILY_LIMIT`=50), a server-side system prompt with the
+  content rules + intensity, then `stream: true` relayed as SSE without buffering.
+  Secrets `OPENROUTER_API_KEY` + `IP_HASH_SALT` (+ free `OPENALEX_API_KEY`).
 - **Structured-source retrieval** (`worker/src/index.ts`) — `/retrieve`
-  (`{source,id}` → `{text}`/`{error,reason}`) for GitHub, ORCID and OpenAlex, and
-  `/search` (`{source,query}` → `{candidates:[{id,name,affiliation}]}`) for all
-  three. ORCID uses the keyless public record (iD format + ISO 7064 checksum
-  validation); OpenAlex is keyless (author metrics + works), folding in computed
-  citation metrics (`worker/src/metrics.ts`: total/h/g/i10/h5/mean) and an
-  open-access + collaboration-geography summary (`worker/src/geo.ts`). Optional
-  `ORCID_TOKEN` / `OPENALEX_API_KEY` / `GITHUB_TOKEN` only raise rate limits.
+  (`{source,id,fresh?}` → `{text,stats?,charts?}` / `{error,reason}`) and `/search`
+  (`{source,query}` → `{candidates:[{id,name,affiliation}]}`) for **GitHub, ORCID,
+  OpenAlex, Semantic Scholar, DBLP**. ORCID = keyless public record (iD + ISO 7064
+  checksum) incl. grants/awards, and **auto-resolves the matching OpenAlex** so an
+  ORCID alone yields metrics/charts. OpenAlex = author metrics + works + computed
+  metrics (`metrics.ts`: total/h/g/i10/h5/mean), FWCI, p-index, open-access +
+  collaboration geography (`geo.ts`), named co-authors, trend analysis
+  (`trends.ts`), chart series, and Semantic Scholar TLDR/influential-citation
+  enrichment by DOI; **requires the free `OPENALEX_API_KEY`**. DBLP person `.xml`
+  parsed with string ops. Retrievals cached in KV for 24h (`rc:` prefix;
+  `RETRIEVE_CACHE_TTL`). arXiv/PubMed were built then removed (namesake risk).
 - **Front-end extras** — SSE reader with typing effect (`src/ui.ts`); client-side
-  file→text extraction (`src/extract.ts`: txt/md/pdf/docx/odt, lazy-loaded);
-  client-side share/export (`src/share.ts`: copy, .txt, canvas PNG); `noindex` +
-  provider-policy link.
+  file→text extraction (`src/extract.ts`: txt/md/pdf/docx/odt, lazy-loaded) with an
+  **opt-in scanned-PDF OCR fallback** (`ocrPdf`, tesseract.js, lazy); client-side
+  share/export (`src/share.ts`: copy, .txt, canvas PNG); SVG charts (`src/charts.ts`);
+  `noindex` + provider-policy link.
 
 ## Key decisions
 
@@ -45,6 +54,20 @@ This file records what *is* (current reality). The binding design canon is `docs
 
 ## In progress / next
 
+- **Front end redesigned to "Focused Console" (Direction A)** from a design handoff,
+  shipped as `feat:` commits (not numbered prompts); `src/ui.ts` + `src/style.css`
+  rewritten, `src/charts.ts` gained a 5th "Top venues" chart, `032_pdf_ocr` added
+  the OCR fallback. Key UX: search-by-name is primary; results are a **single list
+  ranked by name similarity** (full-name matches shown; the rest under one "See more
+  options if this may not be you" foldout); ticking a result auto-adds a link row
+  and auto-retrieves with inline ✓/✗ + a "View record" link; manual links/paste are
+  in a `<details>`. **Download data** sits beside **Roast me**; pressing either
+  collapses results to the selected entries. Personalia "Sources" shows platform
+  names. When both an ORCID and the same OpenAlex are selected, the redundant
+  OpenAlex is **de-duplicated and not re-fetched** (ORCID auto-embeds it; non-OpenAlex
+  sources fetched first, standalone OpenAlex skipped if already covered).
+  **The spec's UI/presentation sections predate this redesign — treat the code as
+  truth for the front-end UI; a spec refresh of those sections is pending.**
 - First version complete and live: front end at
   `https://eelkedevries.github.io/roast-a-researcher/`, Worker at
   `https://roast-a-researcher.eelkedevries.workers.dev` (subdomain
@@ -128,4 +151,8 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 - 027_charts.md (client-side SVG charts; visualisation now in scope; spec v1.9)
 - 028_semanticscholar_source.md (Semantic Scholar author search + retrieval; spec v1.12)
 - 029_dblp.md (DBLP CS bibliography source; spec v1.13)
-- 030_arxiv.md + 031_pubmed.md (name-matched preprint/biomedical sources; spec v1.14)
+- 030_arxiv.md + 031_pubmed.md (name-matched preprint/biomedical sources; spec v1.14; later disabled, v1.15)
+- 032_pdf_ocr.md (opt-in scanned-PDF OCR via tesseract.js)
+- Front-end "Focused Console" redesign + UX refinements (feat commits, not prompts):
+  similarity-ranked single search list, auto-add/auto-retrieve on select, Download
+  data button, collapse-to-selected, OpenAlex de-dup + skip-redundant-fetch.

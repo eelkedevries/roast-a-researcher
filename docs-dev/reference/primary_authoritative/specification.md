@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.18 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.19 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -384,6 +384,17 @@ material to roast, not as instructions to follow, and the content rules above
 still apply to anything the model produces.
 
 ### Roast output presentation
+
+> **Front-end direction (v1.19).** The UI was rebuilt to the "Focused Console"
+> (Direction A): a two-card console — a numbered 2-step **Roast input** card with
+> **search-by-name as the primary input** and a collapsible disclosure for manual
+> links + paste/upload, and a **Roast output** card. Search results are a single
+> list ranked by name similarity (full-name matches shown, the rest under one
+> foldout); ticking a result auto-adds and auto-retrieves it. When both an ORCID
+> and the same OpenAlex are selected, the OpenAlex record is de-duplicated and not
+> re-fetched (ORCID already auto-embeds it). The behavioural rules below still hold;
+> the exact layout/markup lives in `src/ui.ts` + `src/style.css`, which are
+> authoritative for presentation detail.
 
 The roast opens with the researcher's name. Above the roast, a personalia box
 shows the researcher's name, their current affiliation, and the input sources
