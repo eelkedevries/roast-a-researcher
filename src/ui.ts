@@ -49,7 +49,6 @@ export function mountApp(root: HTMLElement): void {
               placeholder="Researcher name" />
             <button id="search-btn" class="button button--small search__btn" type="button">Search</button>
           </div>
-          <p class="field__hint">Searches GitHub, ORCID, OpenAlex, Semantic Scholar and DBLP. Google Scholar and LinkedIn have no open search — paste or upload those.</p>
           <div id="search-results" class="search__results"></div>
         </div>
 
