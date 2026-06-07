@@ -72,6 +72,7 @@ export function mountApp(root: HTMLElement): void {
 
         <button id="roast" class="button" type="button">${copy.roastButton}</button>
         <button id="demo" class="button button--small" type="button">Fake a researcher to try it out</button>
+        <button id="export-data" class="button button--small" type="button">Download retrieved data (.md)</button>
       </section>
 
       <section class="panel" aria-label="Roast output">
@@ -128,6 +129,15 @@ export function mountApp(root: HTMLElement): void {
   if (demoBtn && textarea && counter && output) {
     demoBtn.addEventListener('click', () => {
       showDemo(root, textarea, counter, output)
+    })
+  }
+
+  // Export: run the real retrieval for the current links and download everything
+  // retrieved (per-source text, stats and chart data) as a markdown file.
+  const exportBtn = root.querySelector<HTMLButtonElement>('#export-data')
+  if (exportBtn && textarea) {
+    exportBtn.addEventListener('click', () => {
+      void exportRetrievedData(root, textarea, exportBtn)
     })
   }
 
@@ -573,6 +583,85 @@ function showDemo(
   if (chartsCard) renderCharts(chartsCard, [demoResearcher.charts])
   root.querySelector('#share')?.removeAttribute('hidden')
   output.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+// Render a source's chart data as small markdown tables.
+function chartsToMarkdown(charts: ChartData): string {
+  const out: string[] = []
+  const series = (title: string, rows: Array<[string, string | number]>): void => {
+    out.push(`**${title}**`, '', '| | |', '|---|---|', ...rows.map(([a, b]) => `| ${a} | ${b} |`), '')
+  }
+  if (charts.citationsPerYear?.length)
+    series('Citations per year', charts.citationsPerYear.map((p) => [String(p.year), p.value]))
+  if (charts.worksPerYear?.length)
+    series('Publications per year', charts.worksPerYear.map((p) => [String(p.year), p.value]))
+  if (charts.openAccess?.length)
+    series('Open access', charts.openAccess.map((p) => [p.status, p.count]))
+  if (charts.topCountries?.length)
+    series('Top co-author countries', charts.topCountries.map((p) => [p.country, p.count]))
+  if (charts.topVenues?.length)
+    series('Top venues', charts.topVenues.map((p) => [p.venue, p.count]))
+  return out.length ? out.join('\n') : '_None._'
+}
+
+// Run the real retrieval for the current profile links and download everything
+// retrieved — per-source text (exactly what feeds the roast), stats and chart data
+// — as a markdown file. Uses the same Worker pipeline as a roast.
+async function exportRetrievedData(
+  root: HTMLElement,
+  textarea: HTMLTextAreaElement,
+  exportBtn: HTMLButtonElement,
+): Promise<void> {
+  const original = exportBtn.textContent
+  exportBtn.disabled = true
+  exportBtn.textContent = 'Retrieving…'
+  try {
+    const parts: string[] = [
+      '# Retrieved data',
+      '',
+      `_Generated ${new Date().toISOString()} — the data the tool retrieves and feeds to the roast._`,
+      '',
+      '## Pasted / uploaded input',
+      '',
+    ]
+    const pasted = textarea.value.trim()
+    parts.push(pasted ? '```\n' + pasted + '\n```' : '_None._', '')
+
+    const inputs = Array.from(root.querySelectorAll<HTMLInputElement>('.link-row__input'))
+      .map((i) => i.value.trim())
+      .filter(Boolean)
+
+    if (!inputs.length) {
+      parts.push('## Sources', '', '_No profile links entered — add links and export again._')
+    } else {
+      for (const value of inputs) {
+        const detected = detectSource(value)
+        if (!detected) {
+          parts.push(`## ${value}`, '', '_Not a supported link._', '')
+          continue
+        }
+        const result = await retrieveSource(config.workerUrl, detected.source, detected.id)
+        parts.push(`## ${detected.source} — ${detected.id}`, '')
+        if (!result.ok || !result.text) {
+          parts.push(`_Retrieval failed: ${result.reason ?? 'unknown error'}._`, '')
+          continue
+        }
+        parts.push('### Retrieved text (fed to the roast)', '', '```\n' + result.text + '\n```', '')
+        if (result.stats) {
+          parts.push('### Stats', '', '| Metric | Value |', '|---|---|')
+          for (const e of result.stats.entries) parts.push(`| ${e.label} | ${e.value} |`)
+          parts.push('')
+        }
+        if (result.charts) {
+          parts.push('### Charts data', '', chartsToMarkdown(result.charts), '')
+        }
+      }
+    }
+    downloadText(parts.join('\n'), 'retrieved-data.md')
+  } finally {
+    exportBtn.disabled = false
+    exportBtn.textContent = original
+  }
 }
 
 async function runRoast(
