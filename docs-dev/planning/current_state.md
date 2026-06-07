@@ -76,6 +76,14 @@ This file records what *is* (current reality). The binding design canon is `docs
   visualisation to scope). The OpenAlex `/retrieve` response is now
   `{ text, stats, charts }`. All verified via `npm run check` + `wrangler
   deploy --dry-run`; live API field availability still to confirm in-browser.
+- New sources `028`–`031` done (all free): **Semantic Scholar** (author search +
+  retrieval: papers/citations/h-index + top papers w/ TLDRs; spec v1.12) and
+  **DBLP** (CS bibliography; pid-anchored; person `.xml` parsed with string ops;
+  spec v1.13) are ID-anchored. **arXiv** and **PubMed** are **name-matched** (no
+  author IDs) — added under a new spec "name-matched provision" (v1.14): results
+  labelled "may include namesakes", explicit selection, PubMed ORCID-anchored
+  (`[auid]`) when an ORCID is given. Search now spans GitHub, ORCID, OpenAlex,
+  Semantic Scholar, DBLP, arXiv, PubMed.
 - Remaining prompt: `018_retrieval_cache` (KV cache of `/retrieve`). **Not run —
   blocked on a spec decision** — it conflicts with the locked "Data flow and
   statelessness" rule; the spec must be revised (cache only public-record
@@ -114,3 +122,6 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 - 025_chart_data.md (structured chart series in /retrieve)
 - 026_trend_analysis.md (factual trend block in the roast text)
 - 027_charts.md (client-side SVG charts; visualisation now in scope; spec v1.9)
+- 028_semanticscholar_source.md (Semantic Scholar author search + retrieval; spec v1.12)
+- 029_dblp.md (DBLP CS bibliography source; spec v1.13)
+- 030_arxiv.md + 031_pubmed.md (name-matched preprint/biomedical sources; spec v1.14)
