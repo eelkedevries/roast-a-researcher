@@ -155,10 +155,6 @@ async function handleRetrieve(
       return retrieveSemanticScholar(id, allowOrigin)
     case 'dblp':
       return retrieveDblp(id, allowOrigin)
-    case 'arxiv':
-      return retrieveArxiv(id, allowOrigin)
-    case 'pubmed':
-      return retrievePubmed(id, allowOrigin)
     default:
       return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
   }
@@ -1067,155 +1063,6 @@ async function buildOpenalex(
 }
 
 // OpenAlex /retrieve: validate the id, build the result, wrap as a Response.
-// --- arXiv (030): name-matched preprints (no author IDs) ---
-
-const ORCID_RE = /^\d{4}-\d{4}-\d{4}-\d{3}[\dxX]$/
-
-async function searchArxiv(query: string, allowOrigin: string): Promise<Response> {
-  // arXiv has no author entities; confirm there are matches, then offer one
-  // explicit, name-matched candidate carrying the query as the id.
-  let total = 0
-  try {
-    const res = await fetch(
-      `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(`au:"${query}"`)}&start=0&max_results=1`,
-      { headers: { 'User-Agent': 'roast-a-researcher' } },
-    )
-    if (res.ok) {
-      const xml = await res.text()
-      total = Number(xml.match(/<opensearch:totalResults[^>]*>(\d+)</)?.[1] ?? '0')
-    }
-  } catch {
-    return jsonError('source_error', 'Could not reach arXiv.', 502, allowOrigin)
-  }
-  const list: Candidate[] =
-    total > 0
-      ? [{ id: `arxiv:${query}`, name: `arXiv: ${total} preprints matching "${query}"`, affiliation: 'name-matched' }]
-      : []
-  return candidates(list, allowOrigin)
-}
-
-async function retrieveArxiv(input: string, allowOrigin: string): Promise<Response> {
-  const q = input.trim()
-  if (!q) return jsonError('invalid_identifier', 'No arXiv author name supplied.', 400, allowOrigin)
-  let res: Response
-  try {
-    res = await fetch(
-      `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(`au:"${q}"`)}&start=0&max_results=15&sortBy=submittedDate&sortOrder=descending`,
-      { headers: { 'User-Agent': 'roast-a-researcher' } },
-    )
-  } catch {
-    return jsonError('source_error', 'Could not reach arXiv.', 502, allowOrigin)
-  }
-  if (!res.ok) {
-    return jsonError('source_error', `arXiv returned an error (HTTP ${res.status}).`, 502, allowOrigin)
-  }
-  const xml = await res.text()
-  const lines: string[] = [
-    `arXiv preprints (name-matched on "${q}" — may include other authors with this name):`,
-  ]
-  let count = 0
-  for (const entry of xml.split('<entry>').slice(1)) {
-    const title = entry.match(/<title>([\s\S]*?)<\/title>/)?.[1]
-    if (!title) continue
-    const year = entry.match(/<published>(\d{4})/)?.[1]
-    const cat = entry.match(/<category[^>]*\bterm="([^"]+)"/)?.[1]
-    const summary = entry.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]
-    const meta = [year, cat].filter(Boolean).join(', ')
-    lines.push(`- "${unescapeXml(title)}"${meta ? ` (${meta})` : ''}`)
-    if (summary) {
-      const a = unescapeXml(summary).replace(/\s+/g, ' ')
-      lines.push(`  Abstract: ${a.length > 280 ? `${a.slice(0, 280)}…` : a}`)
-    }
-    if (++count >= 10) break
-  }
-  if (count === 0) lines.push('No preprints found for that name.')
-  return new Response(JSON.stringify({ text: lines.join('\n') }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
-  })
-}
-
-// --- PubMed / NCBI (031): ORCID-anchored when possible, else name-matched ---
-
-async function searchPubmed(query: string, allowOrigin: string): Promise<Response> {
-  let count = 0
-  try {
-    const res = await fetch(
-      `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(`${query}[au]`)}&retmode=json&retmax=0`,
-      { headers: { 'User-Agent': 'roast-a-researcher' } },
-    )
-    if (res.ok) {
-      const data = (await res.json()) as { esearchresult?: { count?: string } }
-      count = Number(data.esearchresult?.count ?? '0')
-    }
-  } catch {
-    return jsonError('source_error', 'Could not reach PubMed.', 502, allowOrigin)
-  }
-  const list: Candidate[] =
-    count > 0
-      ? [{ id: `pubmed:${query}`, name: `PubMed: ${count} articles matching "${query}"`, affiliation: 'name-matched' }]
-      : []
-  return candidates(list, allowOrigin)
-}
-
-async function retrievePubmed(input: string, allowOrigin: string): Promise<Response> {
-  const seed = input.trim()
-  if (!seed) return jsonError('invalid_identifier', 'No PubMed author supplied.', 400, allowOrigin)
-  const anchored = ORCID_RE.test(seed)
-  const term = anchored ? `${seed}[auid]` : `${seed}[au]`
-  const base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils'
-  const headers = { 'User-Agent': 'roast-a-researcher' }
-
-  let ids: string[] = []
-  try {
-    const res = await fetch(
-      `${base}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(term)}&retmode=json&retmax=20&sort=date`,
-      { headers },
-    )
-    if (!res.ok) {
-      return jsonError('source_error', `PubMed search failed (HTTP ${res.status}).`, 502, allowOrigin)
-    }
-    const data = (await res.json()) as { esearchresult?: { idlist?: string[] } }
-    ids = data.esearchresult?.idlist ?? []
-  } catch {
-    return jsonError('source_error', 'Could not reach PubMed.', 502, allowOrigin)
-  }
-
-  const header = anchored
-    ? `PubMed articles (ORCID-anchored to ${seed}):`
-    : `PubMed articles (name-matched on "${seed}" — may include namesakes):`
-  const lines: string[] = [header]
-
-  if (ids.length) {
-    try {
-      const res = await fetch(
-        `${base}/esummary.fcgi?db=pubmed&id=${ids.join(',')}&retmode=json&version=2.0`,
-        { headers },
-      )
-      if (res.ok) {
-        const data = (await res.json()) as {
-          result?: Record<string, { title?: string; fulljournalname?: string; pubdate?: string }>
-        }
-        const result = data.result ?? {}
-        for (const id of ids) {
-          const a = result[id]
-          if (!a?.title) continue
-          const year = a.pubdate?.match(/\d{4}/)?.[0]
-          const meta = [a.fulljournalname, year].filter(Boolean).join(', ')
-          lines.push(`- "${a.title.replace(/\.$/, '')}"${meta ? ` (${meta})` : ''}`)
-        }
-      }
-    } catch {
-      // Summaries optional; the header still records the query.
-    }
-  }
-  if (lines.length === 1) lines.push('No articles found.')
-  return new Response(JSON.stringify({ text: lines.join('\n') }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
-  })
-}
-
 // --- DBLP (029): computer-science bibliography ---
 
 // Minimal XML entity decode for DBLP titles/venues (Workers have no DOM parser).
@@ -1493,10 +1340,6 @@ async function handleSearch(
       return searchSemanticScholar(query, allowOrigin)
     case 'dblp':
       return searchDblp(query, allowOrigin)
-    case 'arxiv':
-      return searchArxiv(query, allowOrigin)
-    case 'pubmed':
-      return searchPubmed(query, allowOrigin)
     default:
       return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
   }

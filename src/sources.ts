@@ -2,26 +2,11 @@
 // via the Worker's /retrieve path. Arbitrary URLs (Scholar, LinkedIn, personal
 // sites) are not supported — they return null and the UI advises pasting text.
 
-export type SourceKind =
-  | 'orcid'
-  | 'openalex'
-  | 'github'
-  | 'semanticscholar'
-  | 'dblp'
-  | 'arxiv'
-  | 'pubmed'
-
-// Sources that match on a name rather than a stable id — results may include
-// namesakes, so they are labelled as such.
-export const NAME_MATCHED_SOURCES: readonly SourceKind[] = ['arxiv', 'pubmed']
+export type SourceKind = 'orcid' | 'openalex' | 'github' | 'semanticscholar' | 'dblp'
 
 export function detectSource(input: string): { source: SourceKind; id: string } | null {
   const s = input.trim()
   if (!s) return null
-
-  // Name-matched sources carry a scheme prefix (arxiv:Name / pubmed:Name or ORCID).
-  const scheme = s.match(/^(arxiv|pubmed):(.+)$/i)
-  if (scheme) return { source: scheme[1].toLowerCase() as SourceKind, id: scheme[2].trim() }
 
   // Bare identifiers.
   if (/^\d{4}-\d{4}-\d{4}-\d{3}[\dxX]$/.test(s)) return { source: 'orcid', id: s }
