@@ -32,6 +32,15 @@ export interface Env {
   OPENALEX_API_KEY?: string
   OPENALEX_MAILTO?: string
   RETRIEVE_CACHE_TTL?: string
+  // ORCID login (033–035). The four vars are non-secret (wrangler.toml); the two
+  // secrets are set with `wrangler secret put`. All optional: when CLIENT_ID /
+  // CLIENT_SECRET / SESSION_SECRET are absent the Worker treats login as disabled.
+  ORCID_OAUTH_BASE?: string
+  ORCID_CLIENT_ID?: string
+  ORCID_REDIRECT_URI?: string
+  APP_URL?: string
+  ORCID_CLIENT_SECRET?: string
+  SESSION_SECRET?: string
 }
 
 type Intensity = 'mild' | 'medium' | 'spicy'

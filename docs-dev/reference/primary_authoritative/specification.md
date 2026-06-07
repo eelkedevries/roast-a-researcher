@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.19 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.20 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -206,6 +206,32 @@ explicitly excludes user-pasted/uploaded text and the generated roast. This is a
 deliberate, scoped relaxation of strict statelessness, recorded in Locked
 decisions; errors are never cached.
 
+### Account verification (ORCID login)
+
+An **optional** "Log in with ORCID" feature lets a researcher prove ownership of
+their ORCID iD so that a roast of **that same iD** displays a **verified** badge.
+It is deliberately minimal and does not turn the app into an account-based service:
+
+- **Session-only, no database.** Logging in does not create a stored account. The
+  Worker runs the ORCID OAuth authorization-code flow with the minimal
+  `/authenticate` scope (which returns only the iD — never private record data),
+  then mints a short-lived **signed token** (HMAC over `{orcid, name, exp}` using
+  the `SESSION_SECRET`) and returns it to the browser. Nothing is persisted
+  server-side; the relaxation of statelessness recorded above is unchanged.
+- **Header token, not a cookie.** The Pages front end and the Worker are different
+  sites, so a session cookie would be a third-party cookie (increasingly blocked).
+  The front end stores the signed token in `localStorage` and sends it as an
+  `Authorization: Bearer` header; the Worker validates it (`/auth/me`). Logout is
+  client-side (drop the token).
+- **The badge is cosmetic and session-scoped.** It indicates only that the
+  profile's ORCID iD matches the logged-in researcher's verified iD. It grants no
+  privileges and unlocks no private data, consistent with the self-directed,
+  comedy-not-verdict framing.
+- **Optional everywhere.** When the ORCID client credentials / `SESSION_SECRET`
+  are unset, login is disabled and the rest of the app is unaffected; name search,
+  pasting an iD, and all other sources continue to work for researchers who have
+  no ORCID iD.
+
 ### Error and failure handling
 
 Two classes of failure are presented differently:
@@ -273,7 +299,8 @@ Front-end build config, `src/config.ts` (public, committed):
 | `DEFAULT_MODEL` | the model slug requested by default |
 | `MAX_INPUT_CHARS` | client-side input cap (mirrors the Worker's) |
 | `DEFAULT_INTENSITY` | the intensity used when the user does not choose (default `spicy`) |
-| UI copy / helper text | the input helper lines, the self-directed framing, the privacy notice, and the in-character error strings |
+| `orcidLoginEnabled` | show the optional "Log in with ORCID" control (verified badge) |
+| UI copy / helper text | the input helper lines, the self-directed framing, the privacy notice, the in-character error strings, and the login/verified-badge copy |
 
 Worker config, `worker/wrangler.toml` `[vars]` (committed, non-secret):
 
@@ -285,12 +312,17 @@ Worker config, `worker/wrangler.toml` `[vars]` (committed, non-secret):
 | `MAX_INPUT_CHARS` | authoritative input cap |
 | `OPENALEX_MAILTO` | contact for OpenAlex requests |
 | `RETRIEVE_CACHE_TTL` | seconds to cache a public-record retrieval in KV (default 24h) |
+| `ORCID_OAUTH_BASE` | ORCID OAuth host (`https://sandbox.orcid.org` or `https://orcid.org`) |
+| `ORCID_CLIENT_ID` | the registered ORCID app's client ID (public by OAuth design) |
+| `ORCID_REDIRECT_URI` | the Worker's `/auth/orcid/callback` URL |
+| `APP_URL` | the Pages app URL the browser returns to after login |
 
 Worker secrets (not committed; `wrangler secret put`, or `worker/.dev.vars`
 locally): `OPENROUTER_API_KEY`, `IP_HASH_SALT`, `OPENALEX_API_KEY` (free key,
 required for OpenAlex features), and the optional `ORCID_TOKEN` (ORCID is keyless;
-see Later data sources). A KV namespace binding (for the daily counter) is declared in
-`wrangler.toml`.
+see Later data sources). For ORCID login (see Account verification): the optional
+`ORCID_CLIENT_SECRET` and `SESSION_SECRET` (login is disabled when unset). A KV
+namespace binding (for the daily counter) is declared in `wrangler.toml`.
 
 ---
 

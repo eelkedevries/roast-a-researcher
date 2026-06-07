@@ -13,6 +13,8 @@ export interface AppConfig {
   maxInputChars: number
   /** Intensity used when the user does not choose one. */
   defaultIntensity: Intensity
+  /** Show the optional "Log in with ORCID" control (verified badge, session-only). */
+  orcidLoginEnabled: boolean
 }
 
 export const config: AppConfig = {
@@ -20,6 +22,7 @@ export const config: AppConfig = {
   defaultModel: 'google/gemini-2.5-flash-lite',
   maxInputChars: 12000,
   defaultIntensity: 'spicy',
+  orcidLoginEnabled: true,
 }
 
 export const intensityLevels: readonly Intensity[] = ['mild', 'medium', 'spicy']
@@ -47,6 +50,13 @@ export const copy = {
     'Read the provider’s data policy before pasting anything sensitive.',
   providerPolicyUrl: 'https://openrouter.ai/privacy',
   providerPolicyLabel: 'OpenRouter’s data policy',
+  // ORCID login (035). Session-only verification: logging in confirms your ORCID
+  // iD, and a roast of that same iD then shows a verified badge. Nothing is stored.
+  loginButton: 'Log in with ORCID',
+  loggedInLabel: 'Verified as',
+  logoutButton: 'Log out',
+  verifiedBadge: 'ORCID-verified',
+  verifiedTitle: 'This profile’s ORCID iD matches the logged-in researcher.',
   errorStrings: [
     'The model has stepped out for a sabbatical. Try again shortly.',
     'Peer review came back: revise and resubmit (in other words, try again).',
