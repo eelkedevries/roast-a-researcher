@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.10 · **Last updated:** 2026-06-06 · **Status:** binding design canon.
+**Version:** 1.11 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -102,12 +102,12 @@ roast-a-researcher/
 └── docs-dev/                 # this specification, overview, prompts, planning
 ```
 
-The Worker secrets (`OPENROUTER_API_KEY`, `IP_HASH_SALT`, and the *optional*
-`OPENALEX_API_KEY` / `ORCID_TOKEN`) are never committed; they are set with
+The Worker secrets (`OPENROUTER_API_KEY`, `IP_HASH_SALT`, `OPENALEX_API_KEY`, and
+the *optional* `ORCID_TOKEN`) are never committed; they are set with
 `wrangler secret put` and, for local development, in `worker/.dev.vars`.
-`.gitignore` excludes `.dev.vars` and `.env*`. OpenAlex and ORCID retrieval work
-without those secrets (see Later data sources); a secret is used only when
-present, to raise rate limits.
+`.gitignore` excludes `.dev.vars` and `.env*`. ORCID retrieval is keyless;
+OpenAlex now requires a (free) API key — see Later data sources — so
+`OPENALEX_API_KEY` must be set for OpenAlex features to work.
 
 ### The Worker
 
@@ -274,9 +274,9 @@ Worker config, `worker/wrangler.toml` `[vars]` (committed, non-secret):
 | `MAX_INPUT_CHARS` | authoritative input cap |
 
 Worker secrets (not committed; `wrangler secret put`, or `worker/.dev.vars`
-locally): `OPENROUTER_API_KEY`, `IP_HASH_SALT`, and the optional
-`OPENALEX_API_KEY` / `ORCID_TOKEN` (retrieval works without them; see Later data
-sources). A KV namespace binding (for the daily counter) is declared in
+locally): `OPENROUTER_API_KEY`, `IP_HASH_SALT`, `OPENALEX_API_KEY` (free key,
+required for OpenAlex features), and the optional `ORCID_TOKEN` (ORCID is keyless;
+see Later data sources). A KV namespace binding (for the daily counter) is declared in
 `wrangler.toml`.
 
 ---
@@ -449,12 +449,16 @@ scraping:
   input.
 - **OpenAlex** — author metrics (`works_count`, `cited_by_count`, and
   `summary_stats.h_index` / `i10_index`, which are distinct fields;
-  `cited_by_count` is total citations, not an h-index) and works. Earlier reports
-  claimed OpenAlex required an API key on every request from 13 February 2026; as
-  re-verified empirically on 2026-06-06 the API still answers author lookups
-  without a key (a `mailto` is polite but optional). It is therefore called from
-  the Worker keyless by default; an optional `OPENALEX_API_KEY` secret is sent
-  when present, to raise limits. The exact free allowance is re-verified at build.
+  `cited_by_count` is total citations, not an h-index) and works. As re-verified on
+  2026-06-07, OpenAlex now uses **usage-based pricing**: anonymous requests get a
+  $0 budget and are rejected with HTTP 429, so a key is required. **API keys are
+  free** (create an account, copy from `openalex.org/settings/api`) and include
+  **$1/day of free usage** — "enough for 99% of users"; single-entity lookups by
+  ID/DOI are $0, list requests $0.0001, search $0.001. It is therefore called from
+  the Worker with `OPENALEX_API_KEY` (free key) sent on every request via the
+  `api_key` parameter; without the key OpenAlex features are unavailable. (The
+  brief "keyless" window recorded earlier no longer holds — the per-request cost
+  is verified at build.)
   Retrieval folds the top works' metadata — title, year, venue and a reconstructed
   abstract (from `abstract_inverted_index`, truncated) — into the roast input so
   the model has concrete material, and returns the basic bibliometrics as
@@ -498,9 +502,9 @@ which is comedic by design but still bounded by the content rules above.
   are the real abuse protection.
 - A flash-class model, pinned by slug in config and verified at build; the
   cheaper flash-lite tier is the default because the owner funds usage.
-- OpenAlex and ORCID are called from the Worker keyless by default (re-verified
-  2026-06-06); an optional `OPENALEX_API_KEY` / `ORCID_TOKEN` secret is used only
-  when present, to raise rate limits. Retrieval never depends on a key.
+- ORCID is called keyless; OpenAlex requires a **free** API key with a $1/day free
+  budget (usage-based pricing, re-verified 2026-06-07) sent as `OPENALEX_API_KEY`.
+  `ORCID_TOKEN` stays optional (rate limits only). OpenAlex features need the key.
 - First-version input is a paste field plus client-side file upload
   (`.txt`, `.md`, `.pdf`, `.docx`, `.odt`), degrading to paste for unsupported
   files; automated retrieval is deferred.
@@ -552,16 +556,16 @@ the template. A phase proceeds only when its gate is met.
 | `007_share_export` | copy-to-clipboard, text download, and in-browser image export | a roast can be copied, downloaded as text, and downloaded as an image, all client-side |
 | `008_privacy_and_polish` | provider disclosure, `noindex`, in-character transient-error strings, input-size handling, deployment and configuration docs | a fresh deploy works from the docs alone; the privacy notice names the provider; transient failures show an in-character message |
 | `009_orcid` | Worker-side ORCID retrieval from an iD/URL | an iD yields works/affiliations as roast input |
-| `010_openalex` | Worker-side OpenAlex retrieval (keyless; optional key) | author metrics retrieved as roast input |
+| `010_openalex` | Worker-side OpenAlex retrieval (free API key required) | author metrics retrieved as roast input |
 | `011_github` | Worker-side GitHub retrieval (public API) from a username/URL | a username yields profile/repos as roast input |
 | `012_source_input_panel` | front end: multi identifier/URL input with add/remove and per-input validate-on-roast (tick/cross + reason), merging retrieved text into the roast | each input shows a tick or a cross with a reason; retrieved text feeds the roast |
 | `013_upload_list` | front end: multi-file upload list with per-file tick/cross + reason (extends `006`) | uploaded files are listed with status and merged into the roast input |
 
 Human inputs to prepare before the relevant phases: an OpenRouter account with a
-small credit balance and a key; a Cloudflare account; and, for the later phases,
-a sample ORCID iD and OpenAlex author ID with populated records. An OpenAlex key
-and ORCID token are optional (they only raise rate limits); retrieval works
-without them.
+small credit balance and a key; a Cloudflare account; a **free OpenAlex API key**
+(`openalex.org/settings/api`, $1/day free usage) set as `OPENALEX_API_KEY`; and a
+sample ORCID iD and OpenAlex author ID with populated records. The ORCID token is
+optional (rate limits only); ORCID retrieval works without it.
 
 ## Appendix B — worked example prompt
 

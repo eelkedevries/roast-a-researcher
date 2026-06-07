@@ -430,9 +430,9 @@ async function retrieveOrcid(
     for (const t of titles) lines.push(`- ${t}`)
   }
 
-  // Auto-resolve the OpenAlex profile from the ORCID iD (free, keyless), so
-  // citation metrics, the stats card, and charts appear from an ORCID alone —
-  // without separately adding an OpenAlex link.
+  // Auto-resolve the OpenAlex profile from the ORCID iD (uses the OpenAlex API
+  // key), so citation metrics, the stats card, and charts appear from an ORCID
+  // alone — without separately adding an OpenAlex link. Skipped if no key/budget.
   let stats: OpenAlexResult['stats'] | undefined
   let charts: OpenAlexResult['charts']
   try {
@@ -473,14 +473,15 @@ function parseOpenalexId(input: string): string | null {
 }
 
 // Build an OpenAlex API URL, appending the API key only when one is configured.
-// OpenAlex answers author lookups without a key (verified 2026-06-06); the key
-// only raises rate limits.
+// OpenAlex uses usage-based pricing (re-verified 2026-06-07): anonymous requests
+// get a $0 budget and 429, so a key is required. API keys are free with $1/day of
+// free usage; it is sent on every request via the `api_key` parameter.
 function openalexUrl(path: string, env: Env, params: Record<string, string> = {}): string {
   const url = new URL(`https://api.openalex.org/${path}`)
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
-  // The polite pool (a `mailto`) gives steadier per-contact limits than the shared
-  // common pool, which a Cloudflare egress IP can exhaust; this keeps OpenAlex
-  // search and retrieval reliable. The API key, when set, raises limits further.
+  // OpenAlex now uses usage-based pricing: the (free) API key carries the $1/day
+  // budget and is required — without it requests return HTTP 429. The `mailto` is
+  // a harmless legacy contact hint.
   if (env.OPENALEX_MAILTO) url.searchParams.set('mailto', env.OPENALEX_MAILTO)
   if (env.OPENALEX_API_KEY) url.searchParams.set('api_key', env.OPENALEX_API_KEY)
   return url.toString()

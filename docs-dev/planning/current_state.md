@@ -55,8 +55,12 @@ This file records what *is* (current reality). The binding design canon is `docs
   name" box (`017`) queries `/search` and lets the user pick a candidate, which
   pre-fills a link row. Unsupported URLs (Scholar/LinkedIn/etc.) fail with
   guidance to paste.
-- ORCID and OpenAlex retrieval are now **keyless** (spec v1.4 corrected the
-  earlier "key required" claim after empirical re-verification on 2026-06-06):
+- **OpenAlex now needs a free API key** (usage-based pricing, re-verified
+  2026-06-07: anonymous = $0 budget → HTTP 429; free key = $1/day, single-ID
+  lookups $0). Set `OPENALEX_API_KEY` (Cloudflare secret) for all OpenAlex
+  features. ORCID/GitHub stay free; ORCID is keyless. The earlier v1.4 "keyless"
+  claim was a transient OpenAlex state and is corrected in spec v1.11.
+- ORCID and OpenAlex retrieval (note OpenAlex key requirement above):
   `009_orcid`, `010_openalex`, `016_metrics`, `019_openalex_enrichment`, and
   `017_name_search` (spec v1.5) are all done. Built and type-checked via
   `npm run check` + `wrangler deploy --dry-run`; metrics verified against a hand
