@@ -5,6 +5,7 @@ import {
   detectSource,
   retrieveSource,
   searchSource,
+  NAME_MATCHED_SOURCES,
   type SourceKind,
   type Candidate,
   type SourceStats,
@@ -49,7 +50,7 @@ export function mountApp(root: HTMLElement): void {
               placeholder="Researcher name" />
             <button id="search-btn" class="button button--small search__btn" type="button">Search</button>
           </div>
-          <p class="field__hint">Searches GitHub, ORCID, OpenAlex, Semantic Scholar and DBLP. Google Scholar and LinkedIn have no open search — paste or upload those.</p>
+          <p class="field__hint">Searches GitHub, ORCID, OpenAlex, Semantic Scholar, DBLP, arXiv and PubMed. arXiv/PubMed match by name (may include namesakes). Google Scholar and LinkedIn have no open search — paste or upload those.</p>
           <div id="search-results" class="search__results"></div>
         </div>
 
@@ -288,6 +289,8 @@ const SEARCH_SOURCES: readonly SourceKind[] = [
   'openalex',
   'semanticscholar',
   'dblp',
+  'arxiv',
+  'pubmed',
 ]
 const SOURCE_LABELS: Record<SourceKind, string> = {
   github: 'GitHub',
@@ -295,6 +298,8 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
   openalex: 'OpenAlex',
   semanticscholar: 'Semantic Scholar',
   dblp: 'DBLP',
+  arxiv: 'arXiv',
+  pubmed: 'PubMed',
 }
 
 // Search every supported source by name at once and render the merged candidate
@@ -428,6 +433,9 @@ async function validateLinks(
       texts.push(result.text)
       if (result.stats) stats.push(result.stats)
       if (result.charts) charts.push(result.charts)
+      if (NAME_MATCHED_SOURCES.includes(detected.source)) {
+        reason.textContent = 'Name-matched — may include namesakes.'
+      }
       sources.add(`${detected.source}: ${detected.id}`)
     } else {
       status.textContent = '✗'

@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.13 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.14 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -469,6 +469,14 @@ scraping:
   string ops, as the Worker has no DOM parser) yields the publication list (title,
   venue, year). Identity is anchored on the DBLP person id (pid). No citation
   metrics. Best for computer-science researchers.
+- **arXiv** — the free, keyless API (`export.arxiv.org/api/query?search_query=au:`)
+  returns a name's recent preprints (title, year, category, abstract; Atom XML
+  parsed with string ops). arXiv has no author IDs, so this is **name-matched** —
+  see the name-matched provision below. Best for physics/CS/maths.
+- **PubMed / NCBI** — the free E-utilities (`esearch` + `esummary`, JSON) return a
+  researcher's biomedical articles. Anchored to an ORCID when one is supplied
+  (`<orcid>[auid]`); otherwise **name-matched** (`<name>[au]`). A key only raises
+  the rate. Best for medicine/biology.
 - **GitHub** — the public REST API (profile, repos, languages) is CORS-enabled
   and usable, with a 60-requests/hour unauthenticated limit per IP; useful for
   technically active researchers.
@@ -484,6 +492,15 @@ scraping:
 
 Identity is anchored on a stable identifier (ORCID iD or DOI) rather than inferred
 from a name, to avoid disambiguation errors.
+
+**Name-matched sources (provision).** Some valuable sources expose no author
+identifier (arXiv; PubMed without an ORCID). These may be queried by name as a
+documented exception to the anchoring rule, under safeguards: results are clearly
+**labelled "name-matched — may include namesakes"** in the UI and prefixed as such
+in the roast input; they are never silently merged as a verified identity; the user
+selects them explicitly; and an identifier is preferred whenever available (e.g.
+PubMed uses `[auid]` with an ORCID). The model is instructed (via the existing
+content rules) not to assert name-matched material as definitely the subject's.
 
 ---
 
