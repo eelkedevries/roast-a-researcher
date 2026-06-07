@@ -544,16 +544,15 @@ async function openalexGroupBy(
   }
 }
 
-// Open-access breakdown and collaboration-geography lines (019). Each line is
-// omitted when its underlying aggregation is missing or empty.
-async function openalexEnrichment(
-  id: string,
-  env: Env,
-  headers: Record<string, string>,
-): Promise<string[]> {
+// Open-access breakdown and collaboration-geography lines (019), from already
+// fetched group_by aggregations (so the same fetch feeds the charts — 025 — too).
+// Each line is omitted when its aggregation is missing or empty.
+function openalexEnrichment(
+  oa: OpenAlexGroup[] | null,
+  countries: OpenAlexGroup[] | null,
+): string[] {
   const lines: string[] = []
 
-  const oa = await openalexGroupBy(id, 'open_access.oa_status', env, headers)
   if (oa && oa.length) {
     const counts: Record<string, number> = {}
     let total = 0
@@ -572,7 +571,6 @@ async function openalexEnrichment(
     }
   }
 
-  const countries = await openalexGroupBy(id, 'institutions.country_code', env, headers)
   if (countries && countries.length) {
     const codes = countries
       .map((g) => g.key)
@@ -692,7 +690,9 @@ async function openalexPIndex(
   env: Env,
   headers: Record<string, string>,
 ): Promise<number | null> {
-  const usable = works.filter((w) => w.sourceId && w.year != null).slice(0, 8)
+  // Capped at 3 cohort lookups: each is a separate OpenAlex request, so this
+  // bounds both latency and usage-based cost.
+  const usable = works.filter((w) => w.sourceId && w.year != null).slice(0, 3)
   const percentiles: number[] = []
   for (const w of usable) {
     const sid = w.sourceId?.match(/S\d+/)?.[0]
@@ -824,15 +824,15 @@ async function openalexCoauthors(
   }
 }
 
-// Chart-ready series (025): per-year publications/citations from the author's
-// counts_by_year, plus open-access, country and venue breakdowns from group_by
-// aggregations. Only non-empty series are included.
-async function openalexChartData(
-  id: string,
+// Chart-ready series (025) from the author's counts_by_year plus the already
+// fetched open-access, country and venue group_by aggregations (shared with the
+// enrichment lines, so each aggregation is fetched once). Non-empty series only.
+function openalexChartData(
   countsByYear: Array<{ year?: number; works_count?: number; cited_by_count?: number }>,
-  env: Env,
-  headers: Record<string, string>,
-): Promise<Record<string, unknown> | undefined> {
+  oa: OpenAlexGroup[] | null,
+  countries: OpenAlexGroup[] | null,
+  venues: OpenAlexGroup[] | null,
+): Record<string, unknown> | undefined {
   const charts: Record<string, unknown> = {}
 
   const years = [...countsByYear]
@@ -843,20 +843,15 @@ async function openalexChartData(
   if (worksPerYear.length) charts.worksPerYear = worksPerYear
   if (citationsPerYear.length) charts.citationsPerYear = citationsPerYear
 
-  const oa = await openalexGroupBy(id, 'open_access.oa_status', env, headers)
   if (oa && oa.length) {
     charts.openAccess = oa.map((g) => ({ status: g.key, count: g.count }))
   }
-
-  const countries = await openalexGroupBy(id, 'institutions.country_code', env, headers)
   if (countries && countries.length) {
     charts.topCountries = countries
       .filter((g) => /^[A-Za-z]{2}$/.test(g.key))
       .slice(0, 10)
       .map((g) => ({ country: g.display || g.key, count: g.count }))
   }
-
-  const venues = await openalexGroupBy(id, 'primary_location.source.id', env, headers)
   if (venues && venues.length) {
     charts.topVenues = venues
       .filter((g) => g.key && g.display && g.key !== 'unknown')
@@ -952,8 +947,16 @@ async function buildOpenalex(
   const metrics = metricsSummary(works, new Date().getUTCFullYear())
   if (metrics) lines.push(metrics)
 
+  // Fetch the three group_by aggregations once and share them between the
+  // enrichment lines (019) and the chart data (025), instead of re-fetching.
+  const [oaGroups, countryGroups, venueGroups] = await Promise.all([
+    openalexGroupBy(id, 'open_access.oa_status', env, headers),
+    openalexGroupBy(id, 'institutions.country_code', env, headers),
+    openalexGroupBy(id, 'primary_location.source.id', env, headers),
+  ])
+
   // Open-access breakdown and collaboration geography (019).
-  for (const line of await openalexEnrichment(id, env, headers)) lines.push(line)
+  for (const line of openalexEnrichment(oaGroups, countryGroups)) lines.push(line)
 
   // Frequent named co-authors (024), beyond the country/continent counts above.
   const coauthors = await openalexCoauthors(id, env, headers, 8)
@@ -1043,7 +1046,12 @@ async function buildOpenalex(
   }
 
   // Structured, chart-ready series for the front-end plots (025).
-  const charts = await openalexChartData(id, author.counts_by_year ?? [], env, headers)
+  const charts = openalexChartData(
+    author.counts_by_year ?? [],
+    oaGroups,
+    countryGroups,
+    venueGroups,
+  )
 
   // Trend analysis (026): factual observations over the per-year series, folded
   // into the roast input so the model can roast the trajectory of a career.
