@@ -120,6 +120,14 @@ export function renderCharts(container: HTMLElement, chartsList: ChartData[]): v
         ),
       )
     }
+    if (charts.topVenues?.length) {
+      figures.push(
+        chartFigure(
+          'Top venues',
+          charts.topVenues.map((p) => ({ label: p.venue, value: p.count })),
+        ),
+      )
+    }
   }
   if (!figures.length) {
     container.setAttribute('hidden', '')

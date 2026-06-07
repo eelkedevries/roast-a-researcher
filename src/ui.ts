@@ -13,227 +13,280 @@ import {
 } from './sources'
 import { renderCharts } from './charts'
 
-// Builds the static shell and wires the roast request to the Worker (streamed,
-// with a typing effect), multi-file upload, and sharing.
+const SOURCE_LABELS: Record<SourceKind, string> = {
+  github: 'GitHub',
+  orcid: 'ORCID',
+  openalex: 'OpenAlex',
+  semanticscholar: 'Semantic Scholar',
+  dblp: 'DBLP',
+}
+const SEARCH_SOURCES: readonly SourceKind[] = [
+  'github',
+  'orcid',
+  'openalex',
+  'semanticscholar',
+  'dblp',
+]
+const UNSUPPORTED_LINK =
+  'Not a supported link (ORCID, OpenAlex, GitHub, Semantic Scholar, DBLP). Paste the text instead.'
+
+// Canonical public-record URL for a detected source (for the "View record" link).
+function recordUrl(detected: { source: SourceKind; id: string }): string {
+  const id = detected.id.trim()
+  if (/^https?:\/\//i.test(id)) return id
+  switch (detected.source) {
+    case 'orcid':
+      return `https://orcid.org/${id.replace(/.*\//, '')}`
+    case 'openalex':
+      return `https://openalex.org/${id.replace(/.*\//, '')}`
+    case 'github':
+      return `https://github.com/${id.replace(/^@/, '')}`
+    case 'dblp':
+      return `https://dblp.org/pid/${id}.html`
+    case 'semanticscholar':
+      return `https://www.semanticscholar.org/author/${id}`
+  }
+}
+
+// Builds the "Focused Console" shell and wires it to the real Worker pipeline.
 export function mountApp(root: HTMLElement): void {
+  const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
   root.innerHTML = `
-    <main class="app">
-      <header class="app__header">
-        <h1 class="app__title">${copy.title}</h1>
-        <p class="app__tagline">${copy.tagline}</p>
-        <p class="app__framing">${copy.framing}</p>
+    <main class="wrap">
+      <header>
+        <p class="kicker">Roast · a · Researcher</p>
+        <h1>${copy.title}</h1>
       </header>
 
-      <section class="panel" aria-label="Profile input">
-        <label class="field__label" for="profile">${copy.inputLabel}</label>
-        <textarea id="profile" class="field__input" rows="10"
-          placeholder="${copy.inputPlaceholder}"></textarea>
-        <p class="field__counter"><span id="char-count">0</span> / ${config.maxInputChars}</p>
-
-        <div id="dropzone" class="dropzone">
-          <input id="file" class="dropzone__input" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" />
-          <button id="choose" class="button button--small" type="button">Choose files</button>
-          <span class="dropzone__hint">or drag &amp; drop — .txt, .md, .pdf, .docx, .odt</span>
-        </div>
-        <ul id="file-list" class="file-list"></ul>
-
-        <div class="links">
-          <span class="field__label">Profile links (ORCID, OpenAlex, GitHub)</span>
-          <div id="links"></div>
-          <button id="add-link" class="button button--small" type="button">+ Add link</button>
-        </div>
-
-        <div class="search">
-          <span class="field__label">Or search by name</span>
-          <div class="search__row">
-            <input id="search-query" class="field__input search__query" type="text"
-              placeholder="Researcher name" />
-            <button id="search-btn" class="button button--small search__btn" type="button">Search</button>
+      <section class="form" aria-label="Roast input">
+        <div class="step">
+          <div class="step__head">
+            <span class="step__num">01</span>
+            <h2 class="step__title">Input</h2>
+            <button class="step__sample" id="sample" type="button">Try a sample</button>
           </div>
-          <div id="search-results" class="search__results"></div>
-        </div>
 
-        <div class="intensity" role="radiogroup" aria-label="${copy.intensityLabel}">
-          <span class="field__label">${copy.intensityLabel}</span>
-          <div class="segmented">
-            ${intensityLevels
-              .map(
-                (level) => `
-            <label class="segmented__option">
-              <input type="radio" name="intensity" value="${level}"
-                ${level === config.defaultIntensity ? 'checked' : ''} />
-              <span>${level}</span>
-            </label>`,
-              )
-              .join('')}
+          <div class="search-hero">
+            <span class="search-hero__icon" aria-hidden="true">⌕</span>
+            <input id="search-query" class="search-hero__input" type="text" placeholder="Search by name…" />
+            <button class="btn btn--primary search-hero__btn" id="search-btn" type="button">Search</button>
           </div>
-          <p class="field__hint">${copy.intensityHint}</p>
+          <div id="search-results" class="search-results"></div>
+
+          <details class="manual" id="manual">
+            <summary class="manual__summary"><span class="manual__chevron" aria-hidden="true">›</span> Or add a link or paste text manually</summary>
+            <div class="manual__body">
+              <div class="manual__group">
+                <span class="micro-label">Profile links <span class="micro-label__sub">ORCID · OpenAlex · GitHub · Semantic Scholar · DBLP</span></span>
+                <div id="links"></div>
+                <button class="chip" id="add-link" type="button"><span class="chip__icon" aria-hidden="true">+</span> Add link</button>
+              </div>
+              <div class="manual__group">
+                <span class="micro-label">Paste or upload text</span>
+                <div class="field" id="dropzone">
+                  <textarea id="profile" class="field__text" placeholder="${copy.inputPlaceholder}"></textarea>
+                  <input id="file" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" hidden />
+                  <div class="field__bar">
+                    <div class="field__actions">
+                      <button class="chip" id="choose" type="button"><span class="chip__icon" aria-hidden="true">↑</span> Upload files</button>
+                    </div>
+                    <span class="counter" id="counter">0 / ${config.maxInputChars}</span>
+                  </div>
+                </div>
+                <ul class="file-list" id="file-list"></ul>
+              </div>
+              <div class="manual__group">
+                <button class="chip" id="export-data" type="button"><span class="chip__icon" aria-hidden="true">↓</span> Download retrieved data (.md)</button>
+              </div>
+            </div>
+          </details>
         </div>
 
-        <button id="roast" class="button" type="button">${copy.roastButton}</button>
-        <button id="demo" class="button button--small" type="button">Fake a researcher to try it out</button>
-        <button id="export-data" class="button button--small" type="button">Download retrieved data (.md)</button>
+        <div class="step">
+          <div class="step__head">
+            <span class="step__num">02</span>
+            <h2 class="step__title">Roast settings</h2>
+          </div>
+          <div class="action-row">
+            <div class="action-row__intensity">
+              <span class="micro-label">${copy.intensityLabel}</span>
+              <div class="segmented" role="radiogroup" aria-label="${copy.intensityLabel}">
+                ${intensityLevels
+                  .map(
+                    (level) =>
+                      `<label><input type="radio" name="intensity" value="${level}"${
+                        level === config.defaultIntensity ? ' checked' : ''
+                      } /><span>${cap(level)}</span></label>`,
+                  )
+                  .join('')}
+              </div>
+            </div>
+            <button class="btn btn--primary" id="roast" type="button">${copy.roastButton}</button>
+          </div>
+          <p class="step__hint">${copy.intensityHint}</p>
+        </div>
       </section>
 
-      <section class="panel" aria-label="Roast output">
-        <dl id="personalia" class="personalia" hidden>
-          <div><dt>Name</dt><dd id="pers-name">—</dd></div>
-          <div><dt>Affiliation</dt><dd id="pers-affil">—</dd></div>
-          <div><dt>Sources</dt><dd id="pers-sources">—</dd></div>
+      <section class="result-card" aria-label="Roast output">
+        <div class="out-head"><span class="label" style="margin:0">The roast</span></div>
+        <dl class="personalia hidden" id="personalia">
+          <div class="row"><dt>Name</dt><dd id="p-name">—</dd></div>
+          <div class="row"><dt>Affiliation</dt><dd id="p-affil">—</dd></div>
+          <div class="row"><dt>Sources</dt><dd id="p-sources">—</dd></div>
         </dl>
-        <div id="roast-output" class="output" aria-live="polite">
-          <p class="output__placeholder">${copy.outputPlaceholder}</p>
-        </div>
-        <div id="stats-card" class="stats-card" hidden></div>
-        <div id="charts-card" class="charts-card" hidden></div>
-        <div id="share" class="share" hidden>
-          <button id="share-copy" class="button button--small" type="button">Copy</button>
-          <button id="share-text" class="button button--small" type="button">Download .txt</button>
-          <button id="share-image" class="button button--small" type="button">Download image</button>
+        <div class="output placeholder" id="output" aria-live="polite">${copy.outputPlaceholder}</div>
+        <div class="stats-card" id="stats-card" hidden></div>
+        <div class="charts-card" id="charts-card" hidden></div>
+        <div class="share hidden" id="share">
+          <button class="btn btn--ghost" id="s-copy" type="button">Copy</button>
+          <button class="btn btn--ghost" id="s-txt" type="button">Download .txt</button>
+          <button class="btn btn--ghost" id="s-img" type="button">Download image</button>
         </div>
       </section>
 
-      <footer class="app__footer">
+      <hr class="div" />
+
+      <footer aria-label="Privacy">
         <p class="privacy">${copy.privacyNotice}
-          <a class="privacy__link" href="${copy.providerPolicyUrl}" target="_blank" rel="noopener">${copy.providerPolicyLabel}</a>.</p>
+          <a href="${copy.providerPolicyUrl}" target="_blank" rel="noopener">${copy.providerPolicyLabel}</a>.</p>
       </footer>
     </main>
   `
 
-  const textarea = root.querySelector<HTMLTextAreaElement>('#profile')
-  const counter = root.querySelector<HTMLSpanElement>('#char-count')
-  const button = root.querySelector<HTMLButtonElement>('#roast')
-  const output = root.querySelector<HTMLDivElement>('#roast-output')
+  const $ = <T extends HTMLElement>(sel: string): T => root.querySelector<T>(sel) as T
+  const textarea = $<HTMLTextAreaElement>('#profile')
+  const counter = $<HTMLElement>('#counter')
+  const output = $<HTMLElement>('#output')
+  const roastBtn = $<HTMLButtonElement>('#roast')
+  const manual = $<HTMLDetailsElement>('#manual')
+  const linksContainer = $<HTMLElement>('#links')
+  const fileList = $<HTMLUListElement>('#file-list')
+  const statsCard = $<HTMLElement>('#stats-card')
+  const chartsCard = $<HTMLElement>('#charts-card')
 
-  // Provenance of the current input: uploaded filenames (and, later, retrieved
-  // sources). Shown in the personalia box.
+  // Provenance of the current input (uploaded filenames, retrieved sources).
   const sources = new Set<string>()
 
-  // Live character count against the client-side input cap.
-  if (textarea && counter) {
-    textarea.addEventListener('input', () => {
-      counter.textContent = String(textarea.value.length)
-    })
+  const setCounter = (): void => {
+    const n = textarea.value.length
+    counter.textContent = `${n} / ${config.maxInputChars}`
+    counter.classList.toggle('warn', n > config.maxInputChars)
   }
+  textarea.addEventListener('input', setCounter)
 
-  if (textarea && button && output) {
-    button.addEventListener('click', () => {
-      void runRoast(textarea, root, output, button, sources)
-    })
-  }
+  roastBtn.addEventListener('click', () => {
+    void runRoast(textarea, root, output, roastBtn, sources, manual)
+  })
 
-  // Demo: render a fully simulated researcher (profile + saved roast + fake stats +
-  // fake charts) entirely client-side — no Worker/model call, so it costs nothing
-  // and works even at the daily limit.
-  const demoBtn = root.querySelector<HTMLButtonElement>('#demo')
-  if (demoBtn && textarea && counter && output) {
-    demoBtn.addEventListener('click', () => {
-      showDemo(root, textarea, counter, output)
-    })
-  }
+  // Try a sample: the zero-cost canned demo (no model call), seeded so the user
+  // can see the seeded profile in the manual panel.
+  $<HTMLButtonElement>('#sample').addEventListener('click', () => {
+    showDemo(root, textarea, output)
+    setCounter()
+    manual.open = true
+  })
 
-  // Export: run the real retrieval for the current links and download everything
-  // retrieved (per-source text, stats and chart data) as a markdown file.
-  const exportBtn = root.querySelector<HTMLButtonElement>('#export-data')
-  if (exportBtn && textarea) {
-    exportBtn.addEventListener('click', () => {
-      void exportRetrievedData(root, textarea, exportBtn)
-    })
-  }
+  // File upload + drag-and-drop (the whole .field is the drop target).
+  const fileInput = $<HTMLInputElement>('#file')
+  const dropzone = $<HTMLElement>('#dropzone')
+  $<HTMLButtonElement>('#choose').addEventListener('click', () => fileInput.click())
+  fileInput.addEventListener('change', () => {
+    const files = Array.from(fileInput.files ?? [])
+    if (files.length) void processFiles(files, textarea, setCounter, fileList, sources)
+    fileInput.value = ''
+  })
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault()
+    dropzone.classList.add('over')
+  })
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('over'))
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault()
+    dropzone.classList.remove('over')
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    if (files.length) void processFiles(files, textarea, setCounter, fileList, sources)
+  })
 
-  // File upload: a "Choose files" button + drag-and-drop dropzone. Files are
-  // processed on select/drop and listed as chips with a tick or a cross + reason.
-  const fileInput = root.querySelector<HTMLInputElement>('#file')
-  const chooseBtn = root.querySelector<HTMLButtonElement>('#choose')
-  const dropzone = root.querySelector<HTMLElement>('#dropzone')
-  const fileList = root.querySelector<HTMLUListElement>('#file-list')
-  if (fileInput && chooseBtn && dropzone && fileList && textarea && counter) {
-    chooseBtn.addEventListener('click', () => fileInput.click())
-    fileInput.addEventListener('change', () => {
-      const files = Array.from(fileInput.files ?? [])
-      if (files.length) void processFiles(files, textarea, counter, fileList, sources)
-      fileInput.value = ''
-    })
-    dropzone.addEventListener('dragover', (e) => {
-      e.preventDefault()
-      dropzone.classList.add('dropzone--over')
-    })
-    dropzone.addEventListener('dragleave', () => {
-      dropzone.classList.remove('dropzone--over')
-    })
-    dropzone.addEventListener('drop', (e) => {
-      e.preventDefault()
-      dropzone.classList.remove('dropzone--over')
-      const files = Array.from(e.dataTransfer?.files ?? [])
-      if (files.length) void processFiles(files, textarea, counter, fileList, sources)
-    })
-  }
+  // Profile links.
+  addLinkRow(linksContainer)
+  $<HTMLButtonElement>('#add-link').addEventListener('click', () => addLinkRow(linksContainer))
 
-  // Profile links: a row per identifier/URL, with a "+ Add link" control.
-  const linksContainer = root.querySelector<HTMLElement>('#links')
-  const addLinkBtn = root.querySelector<HTMLButtonElement>('#add-link')
-  if (linksContainer && addLinkBtn) {
+  // Export retrieved data.
+  const exportBtn = $<HTMLButtonElement>('#export-data')
+  exportBtn.addEventListener('click', () => void exportRetrievedData(root, textarea, exportBtn))
+
+  // Search by name (primary). Re-searching resets the added inputs first.
+  const searchQuery = $<HTMLInputElement>('#search-query')
+  const searchResults = $<HTMLElement>('#search-results')
+  const resetInputs = (): void => {
+    linksContainer.textContent = ''
     addLinkRow(linksContainer)
-    addLinkBtn.addEventListener('click', () => addLinkRow(linksContainer))
+    textarea.value = ''
+    setCounter()
+    fileList.textContent = ''
+    manual.open = false
+    statsCard.setAttribute('hidden', '')
+    chartsCard.setAttribute('hidden', '')
+    sources.clear()
   }
-
-  // Search by name across all supported sources at once, list the merged
-  // candidates, and on selection add a pre-filled link row whose id is then
-  // validated/retrieved on Roast as usual.
-  const searchQuery = root.querySelector<HTMLInputElement>('#search-query')
-  const searchBtn = root.querySelector<HTMLButtonElement>('#search-btn')
-  const searchResults = root.querySelector<HTMLElement>('#search-results')
-  if (searchQuery && searchBtn && searchResults && linksContainer) {
-    const runSearch = (): void => {
-      void doSearch(searchQuery.value, searchResults, linksContainer)
+  const runSearch = (): void => {
+    resetInputs()
+    void doSearch(searchQuery.value, searchResults, linksContainer)
+  }
+  $<HTMLButtonElement>('#search-btn').addEventListener('click', runSearch)
+  searchQuery.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      runSearch()
     }
-    searchBtn.addEventListener('click', runSearch)
-    searchQuery.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        runSearch()
-      }
-    })
-  }
+  })
 
-  // Share / export controls (revealed once a roast exists).
-  const copyBtn = root.querySelector<HTMLButtonElement>('#share-copy')
-  const textBtn = root.querySelector<HTMLButtonElement>('#share-text')
-  const imageBtn = root.querySelector<HTMLButtonElement>('#share-image')
-  if (output && copyBtn && textBtn && imageBtn) {
-    copyBtn.addEventListener('click', () => {
-      copyText(output.textContent ?? '').catch(() => {})
-    })
-    textBtn.addEventListener('click', () => {
-      const text = output.textContent ?? ''
-      if (text) downloadText(text, 'roast.txt')
-    })
-    imageBtn.addEventListener('click', () => {
-      const text = output.textContent ?? ''
-      if (text) downloadImage(text, copy.title, 'roast.png').catch(() => {})
-    })
-  }
+  // Share controls.
+  $<HTMLButtonElement>('#s-copy').addEventListener('click', () => {
+    const btn = $<HTMLButtonElement>('#s-copy')
+    copyText(output.textContent ?? '')
+      .then(() => {
+        const prev = btn.textContent
+        btn.textContent = 'Copied ✓'
+        setTimeout(() => (btn.textContent = prev), 1400)
+      })
+      .catch(() => {})
+  })
+  $<HTMLButtonElement>('#s-txt').addEventListener('click', () => {
+    const text = output.textContent ?? ''
+    if (text) downloadText(text, 'roast.txt')
+  })
+  $<HTMLButtonElement>('#s-img').addEventListener('click', () => {
+    const text = output.textContent ?? ''
+    if (text) downloadImage(text, copy.title, 'roast.png').catch(() => {})
+  })
+
+  setCounter()
 }
 
-// Extract each file client-side, listing it with a tick or a cross + reason, and
-// merge the successful files' text into the editable input.
+// --- file upload ---
+
 async function processFiles(
   files: File[],
   textarea: HTMLTextAreaElement,
-  counter: HTMLElement,
+  setCounter: () => void,
   list: HTMLElement,
   sources: Set<string>,
 ): Promise<void> {
   for (const file of files) {
     const item = document.createElement('li')
     item.className = 'file-list__item'
-
+    const top = document.createElement('div')
+    top.className = 'file-list__top'
     const status = document.createElement('span')
     status.className = 'file-list__status'
     status.textContent = '…'
     const name = document.createElement('span')
     name.className = 'file-list__name'
     name.textContent = file.name
+    const size = document.createElement('span')
+    size.className = 'file-list__size'
+    size.textContent = `${Math.max(1, Math.round(file.size / 1024))} KB`
     const remove = document.createElement('button')
     remove.type = 'button'
     remove.className = 'file-list__remove'
@@ -243,30 +296,29 @@ async function processFiles(
       item.remove()
       sources.delete(file.name)
     })
-    item.append(status, name, remove)
+    top.append(status, name, size, remove)
+    const reason = document.createElement('small')
+    reason.className = 'file-list__reason'
+    reason.hidden = true
+    item.append(top, reason)
     list.appendChild(item)
 
     try {
       appendToInput(textarea, await extractText(file))
       status.textContent = '✓'
-      item.classList.add('file-list__item--ok')
+      item.classList.add('is-ok')
       sources.add(file.name)
     } catch (err) {
       status.textContent = '✗'
-      item.classList.add('file-list__item--fail')
-      const reason = document.createElement('small')
-      reason.className = 'file-list__reason'
+      item.classList.add('is-fail')
+      reason.hidden = false
       reason.textContent =
-        err instanceof UnsupportedFileError
-          ? err.message
-          : 'Could not read that file.'
-      item.appendChild(reason)
+        err instanceof UnsupportedFileError ? err.message : 'Could not read that file.'
 
-      // Scanned/image-only PDF: offer an opt-in, client-side OCR fallback.
       if (err instanceof ScannedPdfError) {
         const ocr = document.createElement('button')
         ocr.type = 'button'
-        ocr.className = 'button button--small file-list__ocr'
+        ocr.className = 'chip file-list__ocr'
         ocr.textContent = 'Try OCR (scanned PDF)'
         ocr.addEventListener('click', () => {
           ocr.disabled = true
@@ -277,14 +329,14 @@ async function processFiles(
             .then((text) => {
               appendToInput(textarea, text)
               status.textContent = '✓'
-              item.classList.remove('file-list__item--fail')
-              item.classList.add('file-list__item--ok')
+              item.classList.remove('is-fail')
+              item.classList.add('is-ok')
               reason.textContent = 'Extracted via OCR — review the text before roasting.'
               sources.add(file.name)
               ocr.remove()
-              counter.textContent = String(textarea.value.length)
+              setCounter()
             })
-            .catch((e) => {
+            .catch((e: unknown) => {
               ocr.disabled = false
               reason.textContent =
                 e instanceof UnsupportedFileError ? e.message : 'OCR failed. Paste the text instead.'
@@ -293,7 +345,7 @@ async function processFiles(
         item.appendChild(ocr)
       }
     }
-    counter.textContent = String(textarea.value.length)
+    setCounter()
   }
 }
 
@@ -304,63 +356,116 @@ function appendToInput(textarea: HTMLTextAreaElement, text: string): void {
   textarea.value = existing ? `${existing}\n\n${trimmed}` : trimmed
 }
 
-function addLinkRow(container: HTMLElement, value = ''): void {
+// --- manual link rows ---
+
+const linkTimers = new WeakMap<HTMLElement, number>()
+
+function addLinkRow(container: HTMLElement, value = ''): HTMLElement {
+  // Reuse the first empty row when a value is supplied (e.g. from a search pick).
+  if (value) {
+    for (const input of Array.from(
+      container.querySelectorAll<HTMLInputElement>('.link-row__input'),
+    )) {
+      if (!input.value.trim()) {
+        input.value = value
+        const reuse = input.closest('.link-row') as HTMLElement
+        updateLinkRow(reuse)
+        return reuse
+      }
+    }
+  }
   const row = document.createElement('div')
   row.className = 'link-row'
-
-  const input = document.createElement('input')
-  input.type = 'url'
-  input.className = 'field__input link-row__input'
-  input.placeholder = 'ORCID iD, or an orcid.org / openalex.org / github.com link'
-  input.value = value
-
-  const status = document.createElement('span')
-  status.className = 'link-row__status'
-
-  const remove = document.createElement('button')
-  remove.type = 'button'
-  remove.className = 'link-row__remove'
-  remove.setAttribute('aria-label', 'Remove link')
-  remove.textContent = '×'
-  remove.addEventListener('click', () => row.remove())
-
-  const reason = document.createElement('small')
-  reason.className = 'link-row__reason'
-
-  const top = document.createElement('div')
-  top.className = 'link-row__top'
-  top.append(input, status, remove)
-  row.append(top, reason)
+  row.innerHTML =
+    '<div class="link-row__top">' +
+    '<input class="input link-row__input" type="url" placeholder="ORCID iD, or an orcid.org / openalex.org / github.com link" />' +
+    '<button class="link-row__remove" type="button" aria-label="Remove link">×</button></div>' +
+    '<div class="link-row__meta" hidden>' +
+    '<span class="link-row__tag"></span>' +
+    '<a class="link-row__inspect" target="_blank" rel="noopener">View record <span aria-hidden="true">↗</span></a>' +
+    '<span class="link-row__retrieve"></span></div>' +
+    '<small class="link-row__reason"></small>'
+  const input = row.querySelector<HTMLInputElement>('.link-row__input') as HTMLInputElement
+  if (value) input.value = value
+  ;(row.querySelector('.link-row__remove') as HTMLButtonElement).addEventListener('click', () =>
+    row.remove(),
+  )
+  input.addEventListener('input', () => updateLinkRow(row))
+  input.addEventListener('blur', () => updateLinkRow(row))
   container.appendChild(row)
+  updateLinkRow(row)
+  return row
 }
 
-const SEARCH_SOURCES: readonly SourceKind[] = [
-  'github',
-  'orcid',
-  'openalex',
-  'semanticscholar',
-  'dblp',
-]
-const SOURCE_LABELS: Record<SourceKind, string> = {
-  github: 'GitHub',
-  orcid: 'ORCID',
-  openalex: 'OpenAlex',
-  semanticscholar: 'Semantic Scholar',
-  dblp: 'DBLP',
+// Validate one row: show the source tag + record link immediately; debounce the
+// retrieval and surface a ✓/✗ status. (The roast re-retrieves authoritatively.)
+function updateLinkRow(row: HTMLElement): void {
+  const input = row.querySelector<HTMLInputElement>('.link-row__input') as HTMLInputElement
+  const meta = row.querySelector<HTMLElement>('.link-row__meta') as HTMLElement
+  const tag = row.querySelector<HTMLElement>('.link-row__tag') as HTMLElement
+  const inspect = row.querySelector<HTMLAnchorElement>('.link-row__inspect') as HTMLAnchorElement
+  const retrieve = row.querySelector<HTMLElement>('.link-row__retrieve') as HTMLElement
+  const reason = row.querySelector<HTMLElement>('.link-row__reason') as HTMLElement
+  const v = input.value.trim()
+  row.classList.remove('ok', 'bad')
+  reason.textContent = ''
+  if (!v) {
+    meta.hidden = true
+    row.dataset.retrieved = ''
+    retrieve.className = 'link-row__retrieve'
+    retrieve.textContent = ''
+    return
+  }
+  const det = detectSource(v)
+  if (!det) {
+    meta.hidden = true
+    row.classList.add('bad')
+    reason.textContent = UNSUPPORTED_LINK
+    row.dataset.retrieved = ''
+    return
+  }
+  row.classList.add('ok')
+  tag.textContent = SOURCE_LABELS[det.source]
+  inspect.href = recordUrl(det)
+  meta.hidden = false
+  if (row.dataset.retrieved === v) return
+  window.clearTimeout(linkTimers.get(row))
+  retrieve.className = 'link-row__retrieve'
+  retrieve.innerHTML = ''
+  linkTimers.set(
+    row,
+    window.setTimeout(() => {
+      row.dataset.retrieved = v
+      retrieve.className = 'link-row__retrieve is-loading'
+      retrieve.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
+      void retrieveSource(config.workerUrl, det.source, det.id).then((res) => {
+        if (input.value.trim() !== v) return
+        if (res.ok && res.text) {
+          retrieve.className = 'link-row__retrieve is-ok'
+          retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
+          retrieve.title = ''
+        } else {
+          retrieve.className = 'link-row__retrieve is-bad'
+          retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
+          retrieve.title = res.reason ?? 'Retrieval failed.'
+        }
+      })
+    }, 500),
+  )
 }
 
-// Search every supported source by name at once and render the merged candidate
-// list, each tagged with its source. Selecting a candidate adds a pre-filled link
-// row (its concrete id), which is validated on Roast.
+// --- search by name ---
+
 async function doSearch(
   query: string,
   results: HTMLElement,
   linksContainer: HTMLElement,
 ): Promise<void> {
   results.textContent = ''
-  if (!query.trim()) return
+  const q = query.trim()
+  if (!q) return
 
-  const pending = document.createElement('li')
+  const pending = document.createElement('p')
   pending.className = 'search__status'
   pending.textContent = 'Searching…'
   results.appendChild(pending)
@@ -368,13 +473,11 @@ async function doSearch(
   const settled = await Promise.all(
     SEARCH_SOURCES.map(async (source) => ({
       source,
-      result: await searchSource(config.workerUrl, source, query),
+      result: await searchSource(config.workerUrl, source, q),
     })),
   )
   results.textContent = ''
 
-  // Collect candidates, and a per-source note when a source errored or returned
-  // nothing — so a failing source (e.g. OpenAlex) is visible, not silently dropped.
   const found: Array<{ source: SourceKind; candidate: Candidate }> = []
   const notes: string[] = []
   for (const { source, result } of settled) {
@@ -387,63 +490,118 @@ async function doSearch(
     for (const candidate of cands) found.push({ source, candidate })
   }
 
-  // Each candidate is a checkbox row; the platform is tagged behind the name.
-  // "Add selected" appends a link row for every ticked candidate, then clears
-  // the result list.
-  if (found.length) {
-    const checks: Array<{ checkbox: HTMLInputElement; candidate: Candidate }> = []
-    for (const { source, candidate } of found) {
-      const row = document.createElement('label')
-      row.className = 'search__result'
-
-      const checkbox = document.createElement('input')
-      checkbox.type = 'checkbox'
-      checkbox.className = 'search__check'
-
-      const name = document.createElement('span')
-      name.className = 'search__name'
-      const affil = candidate.affiliation ? ` — ${candidate.affiliation}` : ''
-      name.textContent = `${candidate.name}${affil}`
-
-      const tag = document.createElement('span')
-      tag.className = 'search__tag'
-      tag.textContent = SOURCE_LABELS[source]
-
-      row.append(checkbox, name, tag)
-      results.appendChild(row)
-      checks.push({ checkbox, candidate })
-    }
-
-    const add = document.createElement('button')
-    add.type = 'button'
-    add.className = 'button button--small search__add'
-    add.textContent = 'Add selected'
-    add.addEventListener('click', () => {
-      const chosen = checks.filter(({ checkbox }) => checkbox.checked)
-      if (!chosen.length) return
-      for (const { candidate } of chosen) addLinkRow(linksContainer, candidate.id)
-      results.textContent = ''
-    })
-    results.appendChild(add)
-  } else if (!notes.length) {
+  if (!found.length && !notes.length) {
     const empty = document.createElement('p')
     empty.className = 'search__status'
     empty.textContent = 'No matches found.'
     results.appendChild(empty)
+    return
   }
 
-  // Per-source status notes (errors / no matches), always shown for diagnosis.
+  for (const { source, candidate } of found) {
+    results.appendChild(searchResultRow(source, candidate, linksContainer))
+  }
   for (const note of notes) {
     const line = document.createElement('p')
-    line.className = 'search__status'
+    line.className = 'search__note'
     line.textContent = note
     results.appendChild(line)
   }
 }
 
-// Validate each non-empty link row by retrieving it via the Worker, marking the
-// row with a tick or a cross + reason. Returns the retrieved texts and any
-// structured stats the sources provided (for the stats card).
+function searchResultRow(
+  source: SourceKind,
+  candidate: Candidate,
+  linksContainer: HTMLElement,
+): HTMLElement {
+  const row = document.createElement('div')
+  row.className = 'search__result'
+
+  const checkbox = document.createElement('input')
+  checkbox.type = 'checkbox'
+  checkbox.className = 'search__check'
+  const cbWrap = document.createElement('label')
+  cbWrap.className = 'search__checkwrap'
+  cbWrap.appendChild(checkbox)
+
+  const body = document.createElement('div')
+  body.className = 'search__body'
+  const name = document.createElement('span')
+  name.className = 'search__name'
+  name.textContent = candidate.name
+  body.appendChild(name)
+  if (candidate.affiliation) {
+    const affil = document.createElement('span')
+    affil.className = 'search__affil'
+    affil.textContent = candidate.affiliation
+    body.appendChild(affil)
+  }
+  body.addEventListener('click', () => {
+    checkbox.checked = !checkbox.checked
+    checkbox.dispatchEvent(new Event('change'))
+  })
+
+  const tag = document.createElement('span')
+  tag.className = 'search__tag'
+  tag.textContent = SOURCE_LABELS[source]
+  const inspect = document.createElement('a')
+  inspect.className = 'search__inspect'
+  inspect.href = recordUrl({ source, id: candidate.id })
+  inspect.target = '_blank'
+  inspect.rel = 'noopener'
+  inspect.title = 'Open the public record in a new tab'
+  inspect.innerHTML = 'View record <span aria-hidden="true">↗</span>'
+  const status = document.createElement('span')
+  status.className = 'search__retrieve'
+  const meta = document.createElement('div')
+  meta.className = 'search__meta'
+  meta.append(tag, inspect, status)
+
+  const main = document.createElement('div')
+  main.className = 'search__main'
+  main.append(body, meta)
+  row.append(cbWrap, main)
+
+  // Ticking a result immediately adds its link row (in the background) and
+  // retrieves it, showing the status inline on the result.
+  let addedRow: HTMLElement | null = null
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) {
+      row.classList.add('is-selected')
+      addedRow = addLinkRow(linksContainer, candidate.id)
+      status.className = 'search__retrieve is-loading'
+      status.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
+      checkbox.disabled = true
+      void retrieveSource(config.workerUrl, source, candidate.id).then((res) => {
+        checkbox.disabled = false
+        if (res.ok && res.text) {
+          status.className = 'search__retrieve is-ok'
+          status.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
+          status.title = ''
+        } else {
+          status.className = 'search__retrieve is-bad'
+          status.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
+          status.title = res.reason ?? 'Retrieval failed.'
+        }
+      })
+    } else {
+      row.classList.remove('is-selected')
+      if (addedRow) {
+        addedRow.remove()
+        addedRow = null
+      }
+      status.className = 'search__retrieve'
+      status.innerHTML = ''
+      status.title = ''
+    }
+  })
+  return row
+}
+
+// --- roast ---
+
+// Retrieve every link row authoritatively (cached) and collect its text/stats/
+// charts, updating each row's inline status.
 async function validateLinks(
   root: HTMLElement,
   sources: Set<string>,
@@ -453,45 +611,50 @@ async function validateLinks(
   const charts: ChartData[] = []
   for (const row of Array.from(root.querySelectorAll<HTMLElement>('.link-row'))) {
     const input = row.querySelector<HTMLInputElement>('.link-row__input')
-    const status = row.querySelector<HTMLElement>('.link-row__status')
+    const meta = row.querySelector<HTMLElement>('.link-row__meta')
+    const tag = row.querySelector<HTMLElement>('.link-row__tag')
+    const inspect = row.querySelector<HTMLAnchorElement>('.link-row__inspect')
+    const retrieve = row.querySelector<HTMLElement>('.link-row__retrieve')
     const reason = row.querySelector<HTMLElement>('.link-row__reason')
-    if (!input || !status || !reason) continue
+    if (!input || !meta || !tag || !inspect || !retrieve || !reason) continue
 
-    status.textContent = ''
+    row.classList.remove('ok', 'bad')
     reason.textContent = ''
-    row.classList.remove('link-row--ok', 'link-row--fail')
     const value = input.value.trim()
-    if (!value) continue
-
-    const detected = detectSource(value)
-    if (!detected) {
-      status.textContent = '✗'
-      row.classList.add('link-row--fail')
-      reason.textContent =
-        'Not a supported link (ORCID, OpenAlex, or GitHub). Paste the text instead.'
+    if (!value) {
+      meta.hidden = true
       continue
     }
-
-    status.textContent = '…'
-    const result = await retrieveSource(config.workerUrl, detected.source, detected.id)
-    if (result.ok && result.text) {
-      status.textContent = '✓'
-      row.classList.add('link-row--ok')
-      texts.push(result.text)
-      if (result.stats) stats.push(result.stats)
-      if (result.charts) charts.push(result.charts)
+    const detected = detectSource(value)
+    if (!detected) {
+      meta.hidden = true
+      row.classList.add('bad')
+      reason.textContent = UNSUPPORTED_LINK
+      continue
+    }
+    row.classList.add('ok')
+    tag.textContent = SOURCE_LABELS[detected.source]
+    inspect.href = recordUrl(detected)
+    meta.hidden = false
+    retrieve.className = 'link-row__retrieve is-loading'
+    retrieve.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
+    const res = await retrieveSource(config.workerUrl, detected.source, detected.id)
+    if (res.ok && res.text) {
+      retrieve.className = 'link-row__retrieve is-ok'
+      retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
+      retrieve.title = ''
+      row.dataset.retrieved = value
+      texts.push(res.text)
+      if (res.stats) stats.push(res.stats)
+      if (res.charts) charts.push(res.charts)
       sources.add(`${detected.source}: ${detected.id}`)
     } else {
-      status.textContent = '✗'
-      row.classList.add('link-row--fail')
-      reason.textContent = result.reason ?? 'Could not retrieve this link.'
+      retrieve.className = 'link-row__retrieve is-bad'
+      retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
+      retrieve.title = res.reason ?? 'Retrieval failed.'
     }
   }
   return { texts, stats, charts }
-}
-
-function setOutput(output: HTMLElement, text: string): void {
-  output.textContent = text
 }
 
 function randomError(): string {
@@ -500,13 +663,29 @@ function randomError(): string {
 }
 
 function selectedIntensity(root: HTMLElement): Intensity {
-  const checked = root.querySelector<HTMLInputElement>(
-    'input[name="intensity"]:checked',
-  )
+  const checked = root.querySelector<HTMLInputElement>('input[name="intensity"]:checked')
   const value = checked?.value
   return intensityLevels.includes(value as Intensity)
     ? (value as Intensity)
     : config.defaultIntensity
+}
+
+function placeholderOut(output: HTMLElement, text: string): void {
+  output.className = 'output placeholder'
+  output.textContent = text
+}
+function statusOut(output: HTMLElement, msg: string): void {
+  output.className = 'output'
+  const span = document.createElement('span')
+  span.className = 'status-line'
+  span.textContent = msg
+  output.replaceChildren(span)
+}
+function streamOut(output: HTMLElement, text: string): void {
+  output.className = 'output'
+  const caret = document.createElement('span')
+  caret.className = 'caret'
+  output.replaceChildren(document.createTextNode(text), caret)
 }
 
 function fillPersonalia(
@@ -514,21 +693,18 @@ function fillPersonalia(
   header: { name?: unknown; affiliation?: unknown } | null,
   sources: Set<string>,
 ): void {
-  const value = (v: unknown): string =>
-    typeof v === 'string' && v.trim() ? v.trim() : 'unknown'
+  const value = (v: unknown): string => (typeof v === 'string' && v.trim() ? v.trim() : 'unknown')
   const used = sources.size ? [...sources] : ['Pasted text']
   const set = (id: string, text: string): void => {
     const el = root.querySelector(`#${id}`)
     if (el) el.textContent = text
   }
-  set('pers-name', value(header?.name))
-  set('pers-affil', value(header?.affiliation))
-  set('pers-sources', used.join(', '))
-  root.querySelector('#personalia')?.removeAttribute('hidden')
+  set('p-name', value(header?.name))
+  set('p-affil', value(header?.affiliation))
+  set('p-sources', used.join(', '))
+  root.querySelector('#personalia')?.classList.remove('hidden')
 }
 
-// Render a card of basic stats (one block per source that provided them) below
-// the roast. Hidden when no source returned stats.
 function renderStatsCard(root: HTMLElement, stats: SourceStats[]): void {
   const card = root.querySelector<HTMLElement>('#stats-card')
   if (!card) return
@@ -542,7 +718,6 @@ function renderStatsCard(root: HTMLElement, stats: SourceStats[]): void {
     title.className = 'stats-card__title'
     title.textContent = block.title
     card.appendChild(title)
-
     const grid = document.createElement('dl')
     grid.className = 'stats-card__grid'
     for (const { label, value } of block.entries) {
@@ -560,19 +735,12 @@ function renderStatsCard(root: HTMLElement, stats: SourceStats[]): void {
   card.removeAttribute('hidden')
 }
 
-// Render the saved demo researcher with no network call: fills the input, shows
-// the personalia, the saved roast, the simulated stats card and charts, and the
-// share controls — a zero-cost showcase of every feature.
-function showDemo(
-  root: HTMLElement,
-  textarea: HTMLTextAreaElement,
-  counter: HTMLElement,
-  output: HTMLElement,
-): void {
+// Zero-cost demo: render the saved fake researcher fully client-side.
+function showDemo(root: HTMLElement, textarea: HTMLTextAreaElement, output: HTMLElement): void {
   textarea.value = demoResearcher.profile
-  counter.textContent = String(textarea.value.length)
   const demoSources = new Set<string>(['Simulated demo data'])
-  setOutput(output, demoResearcher.roast)
+  output.className = 'output'
+  output.textContent = demoResearcher.roast
   fillPersonalia(
     root,
     { name: demoResearcher.name, affiliation: demoResearcher.affiliation },
@@ -581,11 +749,163 @@ function showDemo(
   renderStatsCard(root, [demoResearcher.stats])
   const chartsCard = root.querySelector<HTMLElement>('#charts-card')
   if (chartsCard) renderCharts(chartsCard, [demoResearcher.charts])
-  root.querySelector('#share')?.removeAttribute('hidden')
+  root.querySelector('#share')?.classList.remove('hidden')
   output.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-// Render a source's chart data as small markdown tables.
+async function runRoast(
+  textarea: HTMLTextAreaElement,
+  root: HTMLElement,
+  output: HTMLElement,
+  button: HTMLButtonElement,
+  sources: Set<string>,
+  manual: HTMLDetailsElement,
+): Promise<void> {
+  if (!config.workerUrl) {
+    placeholderOut(output, 'Roasting is not configured in this build yet (no Worker URL).')
+    return
+  }
+
+  button.disabled = true
+  root.querySelector('#share')?.classList.add('hidden')
+  root.querySelector('#personalia')?.classList.add('hidden')
+  root.querySelector('#stats-card')?.setAttribute('hidden', '')
+  root.querySelector('#charts-card')?.setAttribute('hidden', '')
+  statusOut(output, 'Checking links…')
+
+  const { texts: linkTexts, stats: linkStats, charts: linkCharts } = await validateLinks(
+    root,
+    sources,
+  )
+  const profile = [textarea.value.trim(), ...linkTexts].filter(Boolean).join('\n\n').trim()
+  if (!profile) {
+    manual.open = true
+    placeholderOut(output, 'Search for a name above, or add a link or paste text to get started.')
+    button.disabled = false
+    return
+  }
+  if (profile.length > config.maxInputChars) {
+    placeholderOut(output, `That is longer than ${config.maxInputChars} characters. Trim it down.`)
+    button.disabled = false
+    return
+  }
+  statusOut(output, 'Roasting…')
+
+  try {
+    const response = await fetch(config.workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profile,
+        intensity: selectedIntensity(root),
+        model: config.defaultModel,
+      }),
+    })
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as
+        | { error?: string; message?: string }
+        | null
+      const plain = new Set(['too_large', 'bad_model', 'bad_request', 'rate_limited'])
+      placeholderOut(
+        output,
+        data && data.error && plain.has(data.error) && data.message ? data.message : randomError(),
+      )
+      return
+    }
+
+    // Stream the SSE response. The model emits a one-line JSON header
+    // {name, affiliation} first; parse that into the personalia box and stream the
+    // remainder as the roast (typing effect with a caret).
+    const body = response.body
+    if (!body) {
+      placeholderOut(output, randomError())
+      return
+    }
+    const reader = body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let raw = ''
+    let headerDone = false
+    let headerEnd = 0
+
+    const tryHeader = (): void => {
+      if (headerDone) return
+      const s = raw.trimStart()
+      if (!s.startsWith('{')) {
+        if (raw.length > 200) {
+          headerDone = true
+          headerEnd = 0
+          fillPersonalia(root, null, sources)
+        }
+        return
+      }
+      const close = s.indexOf('}')
+      if (close === -1) return
+      let header: { name?: unknown; affiliation?: unknown } | null = null
+      try {
+        header = JSON.parse(s.slice(0, close + 1)) as typeof header
+      } catch {
+        header = null
+      }
+      headerDone = true
+      headerEnd = header ? raw.length - s.length + close + 1 : 0
+      fillPersonalia(root, header, sources)
+    }
+
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data:')) continue
+        const payload = trimmed.slice(5).trim()
+        if (payload === '[DONE]') {
+          buffer = ''
+          break
+        }
+        try {
+          const json = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> }
+          const delta = json.choices?.[0]?.delta?.content
+          if (delta) {
+            raw += delta
+            tryHeader()
+            if (headerDone) streamOut(output, raw.slice(headerEnd).replace(/^\s+/, ''))
+          }
+        } catch {
+          // Partial or non-JSON line; wait for more data.
+        }
+      }
+    }
+
+    if (!headerDone) {
+      fillPersonalia(root, null, sources)
+      headerEnd = 0
+    }
+    const roast = raw.slice(headerEnd).trim()
+    if (!roast) {
+      placeholderOut(output, randomError())
+    } else {
+      output.className = 'output'
+      output.textContent = roast
+      root.querySelector('#personalia')?.classList.remove('hidden')
+      renderStatsCard(root, linkStats)
+      const chartsCard = root.querySelector<HTMLElement>('#charts-card')
+      if (chartsCard) renderCharts(chartsCard, linkCharts)
+      root.querySelector('#share')?.classList.remove('hidden')
+    }
+  } catch {
+    placeholderOut(output, randomError())
+  } finally {
+    button.disabled = false
+  }
+}
+
+// --- data export (kept from before; lives in the manual disclosure) ---
+
 function chartsToMarkdown(charts: ChartData): string {
   const out: string[] = []
   const series = (title: string, rows: Array<[string, string | number]>): void => {
@@ -598,15 +918,12 @@ function chartsToMarkdown(charts: ChartData): string {
   if (charts.openAccess?.length)
     series('Open access', charts.openAccess.map((p) => [p.status, p.count]))
   if (charts.topCountries?.length)
-    series('Top co-author countries', charts.topCountries.map((p) => [p.country, p.count]))
+    series('Co-author countries', charts.topCountries.map((p) => [p.country, p.count]))
   if (charts.topVenues?.length)
     series('Top venues', charts.topVenues.map((p) => [p.venue, p.count]))
   return out.length ? out.join('\n') : '_None._'
 }
 
-// Run the real retrieval for the current profile links and download everything
-// retrieved — per-source text (exactly what feeds the roast), stats and chart data
-// — as a markdown file. Uses the same Worker pipeline as a roast.
 async function exportRetrievedData(
   root: HTMLElement,
   textarea: HTMLTextAreaElement,
@@ -640,7 +957,6 @@ async function exportRetrievedData(
           parts.push(`## ${value}`, '', '_Not a supported link._', '')
           continue
         }
-        // Export bypasses the cache so it always reflects the current code/data.
         const result = await retrieveSource(config.workerUrl, detected.source, detected.id, true)
         parts.push(`## ${detected.source} — ${detected.id}`, '')
         if (!result.ok || !result.text) {
@@ -653,179 +969,12 @@ async function exportRetrievedData(
           for (const e of result.stats.entries) parts.push(`| ${e.label} | ${e.value} |`)
           parts.push('')
         }
-        if (result.charts) {
-          parts.push('### Charts data', '', chartsToMarkdown(result.charts), '')
-        }
+        if (result.charts) parts.push('### Charts data', '', chartsToMarkdown(result.charts), '')
       }
     }
     downloadText(parts.join('\n'), 'retrieved-data.md')
   } finally {
     exportBtn.disabled = false
     exportBtn.textContent = original
-  }
-}
-
-async function runRoast(
-  textarea: HTMLTextAreaElement,
-  root: HTMLElement,
-  output: HTMLElement,
-  button: HTMLButtonElement,
-  sources: Set<string>,
-): Promise<void> {
-  if (!config.workerUrl) {
-    setOutput(output, 'Roasting is not configured in this build yet (no Worker URL).')
-    return
-  }
-
-  button.disabled = true
-  root.querySelector('#share')?.setAttribute('hidden', '')
-  root.querySelector('#personalia')?.setAttribute('hidden', '')
-  root.querySelector('#stats-card')?.setAttribute('hidden', '')
-  root.querySelector('#charts-card')?.setAttribute('hidden', '')
-  setOutput(output, 'Checking links…')
-
-  // Validate any profile links first (retrieving each via the Worker), then
-  // combine the pasted/uploaded text with the retrieved text.
-  const { texts: linkTexts, stats: linkStats, charts: linkCharts } = await validateLinks(
-    root,
-    sources,
-  )
-  const profile = [textarea.value.trim(), ...linkTexts]
-    .filter(Boolean)
-    .join('\n\n')
-    .trim()
-  if (!profile) {
-    setOutput(output, 'Paste some text, upload a file, or add a valid link first.')
-    button.disabled = false
-    return
-  }
-  if (profile.length > config.maxInputChars) {
-    setOutput(output, `That is longer than ${config.maxInputChars} characters. Trim it down.`)
-    button.disabled = false
-    return
-  }
-  setOutput(output, 'Roasting…')
-
-  try {
-    const response = await fetch(config.workerUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        profile,
-        intensity: selectedIntensity(root),
-        model: config.defaultModel,
-      }),
-    })
-
-    if (!response.ok) {
-      // Explicable limits and bad requests carry a plain message; everything
-      // else is shown in character. A failed roast never triggers a second
-      // model call.
-      const data = (await response.json().catch(() => null)) as
-        | { error?: string; message?: string }
-        | null
-      const plain = new Set(['too_large', 'bad_model', 'bad_request', 'rate_limited'])
-      if (data && data.error && plain.has(data.error) && data.message) {
-        setOutput(output, data.message)
-      } else {
-        setOutput(output, randomError())
-      }
-      return
-    }
-
-    // Stream the SSE response. The model emits a one-line JSON header
-    // {name, affiliation} first; we parse that into the personalia box and
-    // stream the remainder as the roast (the typing effect), never showing the
-    // raw header. The Worker relays OpenRouter's stream verbatim.
-    const body = response.body
-    if (!body) {
-      setOutput(output, randomError())
-      return
-    }
-    const reader = body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let raw = ''
-    let headerDone = false
-    let headerEnd = 0
-    setOutput(output, '…')
-
-    const tryHeader = (): void => {
-      if (headerDone) return
-      const s = raw.trimStart()
-      if (!s.startsWith('{')) {
-        // No JSON header (model didn't comply); treat everything as the roast.
-        if (raw.length > 200) {
-          headerDone = true
-          headerEnd = 0
-          fillPersonalia(root, null, sources)
-        }
-        return
-      }
-      const close = s.indexOf('}')
-      if (close === -1) return
-      let header: { name?: unknown; affiliation?: unknown } | null = null
-      try {
-        header = JSON.parse(s.slice(0, close + 1)) as typeof header
-      } catch {
-        header = null
-      }
-      headerDone = true
-      headerEnd = header ? raw.length - s.length + close + 1 : 0
-      fillPersonalia(root, header, sources)
-    }
-
-    for (;;) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        const trimmed = line.trim()
-        // Ignore blank lines and `:` keep-alive comments.
-        if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data:')) {
-          continue
-        }
-        const payload = trimmed.slice(5).trim()
-        if (payload === '[DONE]') {
-          buffer = ''
-          break
-        }
-        try {
-          const json = JSON.parse(payload) as {
-            choices?: Array<{ delta?: { content?: string } }>
-          }
-          const delta = json.choices?.[0]?.delta?.content
-          if (delta) {
-            raw += delta
-            tryHeader()
-            if (headerDone) output.textContent = raw.slice(headerEnd).replace(/^\s+/, '')
-          }
-        } catch {
-          // Partial or non-JSON line; wait for more data.
-        }
-      }
-    }
-
-    if (!headerDone) {
-      fillPersonalia(root, null, sources)
-      headerEnd = 0
-    }
-    const roast = raw.slice(headerEnd).trim()
-    if (!roast) {
-      setOutput(output, randomError())
-    } else {
-      output.textContent = roast
-      root.querySelector('#personalia')?.removeAttribute('hidden')
-      renderStatsCard(root, linkStats)
-      const chartsCard = root.querySelector<HTMLElement>('#charts-card')
-      if (chartsCard) renderCharts(chartsCard, linkCharts)
-      root.querySelector('#share')?.removeAttribute('hidden')
-    }
-  } catch {
-    setOutput(output, randomError())
-  } finally {
-    button.disabled = false
   }
 }
