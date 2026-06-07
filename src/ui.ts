@@ -1,4 +1,4 @@
-import { config, copy, intensityLevels, type Intensity } from './config'
+import { config, copy, MIN_INTENSITY, MAX_INTENSITY, intensityLabelFor } from './config'
 import { extractText, ocrPdf, UnsupportedFileError, ScannedPdfError } from './extract'
 import { demoResearcher } from './demo'
 import { copyText, downloadText, downloadImage } from './share'
@@ -56,7 +56,6 @@ function recordUrl(detected: { source: SourceKind; id: string }): string {
 
 // Builds the "Focused Console" shell and wires it to the real Worker pipeline.
 export function mountApp(root: HTMLElement): void {
-  const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
   root.innerHTML = `
     <main class="wrap">
       <header>
@@ -118,17 +117,11 @@ export function mountApp(root: HTMLElement): void {
           </div>
           <div class="action-row">
             <div class="action-row__intensity">
-              <span class="micro-label">${copy.intensityLabel}</span>
-              <div class="segmented" role="radiogroup" aria-label="${copy.intensityLabel}">
-                ${intensityLevels
-                  .map(
-                    (level) =>
-                      `<label><input type="radio" name="intensity" value="${level}"${
-                        level === config.defaultIntensity ? ' checked' : ''
-                      } /><span>${cap(level)}</span></label>`,
-                  )
-                  .join('')}
+              <div class="intensity-head">
+                <span class="micro-label">${copy.intensityLabel}</span>
+                <span class="intensity-val" id="intensity-input-val"></span>
               </div>
+              <input type="range" class="intensity-range" id="intensity-input" min="${MIN_INTENSITY}" max="${MAX_INTENSITY}" step="1" aria-label="${copy.intensityLabel}" />
             </div>
             <div class="action-row__go">
               <button class="btn btn--ghost" id="export-data" type="button">Download data</button>
@@ -161,6 +154,19 @@ export function mountApp(root: HTMLElement): void {
           <h2 class="rsec__h">Profile</h2>
           <div class="output placeholder" id="output" aria-live="polite">${copy.outputPlaceholder}</div>
           <p class="runmeta hidden" id="runmeta"></p>
+          <div class="reroast hidden" id="reroast">
+            <div class="reroast__intensity">
+              <div class="intensity-head">
+                <span class="micro-label">${copy.intensityLabel}</span>
+                <span class="intensity-val" id="intensity-output-val"></span>
+              </div>
+              <input type="range" class="intensity-range" id="intensity-output" min="${MIN_INTENSITY}" max="${MAX_INTENSITY}" step="1" aria-label="${copy.intensityLabel}" />
+            </div>
+            <div class="reroast__actions">
+              <button class="btn btn--primary" id="reroast-btn" type="button">Re-roast</button>
+              <button class="btn btn--ghost" id="inspect-papers" type="button">Inspect papers used</button>
+            </div>
+          </div>
         </section>
 
         <section class="rsec hidden" id="sec-papers">
@@ -262,6 +268,33 @@ export function mountApp(root: HTMLElement): void {
   // Re-roast from the Papers section after marking mis-attributed papers.
   $<HTMLButtonElement>('#papers-reroast').addEventListener('click', () => triggerRoast?.())
 
+  // Intensity scaler (1–10), shared between the input control and the post-roast
+  // control; either slider updates the shared value and both displays.
+  const intensitySliders: HTMLInputElement[] = []
+  const intensityLabels: HTMLElement[] = []
+  const syncIntensity = (val: number): void => {
+    currentIntensity = val
+    for (const s of intensitySliders) s.value = String(val)
+    for (const l of intensityLabels) l.textContent = `${val}/10 · ${intensityLabelFor(val)}`
+  }
+  const registerIntensity = (sliderSel: string, labelSel: string): void => {
+    const slider = $<HTMLInputElement>(sliderSel)
+    const label = $<HTMLElement>(labelSel)
+    intensitySliders.push(slider)
+    intensityLabels.push(label)
+    slider.addEventListener('input', () => syncIntensity(Number(slider.value)))
+  }
+  registerIntensity('#intensity-input', '#intensity-input-val')
+  registerIntensity('#intensity-output', '#intensity-output-val')
+  syncIntensity(currentIntensity)
+
+  // Post-roast options: re-roast at the current intensity, or jump to the Papers
+  // list to mark mis-attributed papers.
+  $<HTMLButtonElement>('#reroast-btn').addEventListener('click', () => triggerRoast?.())
+  $<HTMLButtonElement>('#inspect-papers').addEventListener('click', () => {
+    root.querySelector('#sec-papers')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+
   // Try a sample: the zero-cost canned demo (no model call), seeded so the user
   // can see the seeded profile in the manual panel.
   $<HTMLButtonElement>('#sample').addEventListener('click', () => {
@@ -321,6 +354,7 @@ export function mountApp(root: HTMLElement): void {
     sources.clear()
     excludedPaperKeys.clear()
     lastRenderedPapers = []
+    root.querySelector('#reroast')?.classList.add('hidden')
   }
   const runSearch = (): void => {
     resetInputs()
@@ -987,12 +1021,11 @@ function randomError(): string {
   return strings[Math.floor(Math.random() * strings.length)] ?? strings[0]
 }
 
-function selectedIntensity(root: HTMLElement): Intensity {
-  const checked = root.querySelector<HTMLInputElement>('input[name="intensity"]:checked')
-  const value = checked?.value
-  return intensityLevels.includes(value as Intensity)
-    ? (value as Intensity)
-    : config.defaultIntensity
+// Current roast intensity (1–10 scaler), shared by the input and post-roast
+// sliders; read at roast time.
+let currentIntensity = config.defaultIntensity
+function selectedIntensity(): number {
+  return currentIntensity
 }
 
 function placeholderOut(output: HTMLElement, text: string): void {
@@ -1377,6 +1410,7 @@ async function runRoast(
   root.querySelector('#sec-papers')?.classList.add('hidden')
   root.querySelector('#sec-numbers')?.classList.add('hidden')
   root.querySelector('#runmeta')?.classList.add('hidden')
+  root.querySelector('#reroast')?.classList.add('hidden')
   root.querySelector('#stats-card')?.setAttribute('hidden', '')
   root.querySelector('#charts-card')?.setAttribute('hidden', '')
   statusOut(output, 'Checking links…')
@@ -1417,7 +1451,7 @@ async function runRoast(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         profile,
-        intensity: selectedIntensity(root),
+        intensity: selectedIntensity(),
         model: config.defaultModel,
         exclude,
       }),
@@ -1539,6 +1573,11 @@ async function runRoast(
       if (chartsCard) renderCharts(chartsCard, linkCharts)
       toggleNumbers(root, linkStats, linkCharts)
       root.querySelector('#share')?.classList.remove('hidden')
+      // Post-roast options: adjust intensity & re-roast, and inspect papers.
+      root.querySelector('#reroast')?.classList.remove('hidden')
+      root
+        .querySelector('#inspect-papers')
+        ?.classList.toggle('hidden', root.querySelector('#sec-papers')?.classList.contains('hidden') ?? true)
     }
   } catch {
     placeholderOut(output, randomError())

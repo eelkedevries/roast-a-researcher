@@ -43,8 +43,10 @@ export interface Env {
   SESSION_SECRET?: string
 }
 
-type Intensity = 'mild' | 'medium' | 'spicy'
-const INTENSITIES: readonly Intensity[] = ['mild', 'medium', 'spicy']
+// Intensity is a 1–10 scaler (replacing the old three discrete levels).
+const MIN_INTENSITY = 1
+const MAX_INTENSITY = 10
+const DEFAULT_INTENSITY = 7
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const MAX_OUTPUT_TOKENS = 1500
@@ -91,18 +93,15 @@ function jsonError(
   })
 }
 
-function intensityDirective(intensity: Intensity): string {
-  switch (intensity) {
-    case 'mild':
-      return 'Keep it gentle and good-natured — a soft ribbing.'
-    case 'medium':
-      return 'Be sharp and witty, with real bite but not cruel.'
-    case 'spicy':
-      return 'Be cutting and merciless within the rules — maximum sharpness.'
-  }
+function intensityDirective(intensity: number): string {
+  if (intensity <= 2) return 'Very gentle and affectionate — the lightest, warmest ribbing.'
+  if (intensity <= 4) return 'Light and good-natured — playful teasing, never harsh.'
+  if (intensity <= 6) return 'Sharp and witty, with real bite but not cruel.'
+  if (intensity <= 8) return 'Cutting and merciless within the rules — properly sharp.'
+  return 'Maximum savagery within the content rules — as brutal as the rules allow.'
 }
 
-function buildSystemPrompt(intensity: Intensity, exclude: string[] = []): string {
+function buildSystemPrompt(intensity: number, exclude: string[] = []): string {
   const parts = [
     'You are a comedy writer roasting an academic, working only from the profile text the user supplies.',
     'The roast is comedy about a public, professional academic record — not an attack on a private individual.',
@@ -121,7 +120,7 @@ function buildSystemPrompt(intensity: Intensity, exclude: string[] = []): string
     '- Only make a joke if it genuinely lands. The presence of material (awards, grants, degrees, a long CV, many papers) is NEVER itself a reason to joke about it — far better to omit a topic entirely than to include a weak, obvious, or generic joke about it. If grants or awards (or anything else) offer a genuinely sharp angle, use them and name the real ones; if they do not, leave them out completely.',
     '- Write in British English. DEFAULT TO SHORT. Most profiles are unremarkable and deserve only a few cutting sentences (roughly 60–150 words). Only go longer when the material genuinely offers many distinct, strong jokes — and stop the instant the good material runs out (hard ceiling ~600 words). Length must be earned by quality material, never by padding, filler, or restating the same joke; when in doubt, cut. A tight short roast of only the best jokes always beats a longer one padded with mediocre ones.',
     '',
-    `Intensity: ${intensity}. ${intensityDirective(intensity)}`,
+    `Intensity: ${intensity}/10. ${intensityDirective(intensity)}`,
     '',
     'Output format — output these two parts in this exact order:',
     '1. FIRST a single valid JSON object and NOTHING before it — no preamble, no explanation, no markdown, no code fences. It must start with "{" as the very first character. Use double quotes, no trailing commas, no comments. Fields (use null, or [] for lists, only when the text genuinely gives nothing — otherwise fill every field you reasonably can, inferring researchDomain/researchFocus from titles, venues and bio where needed; never fabricate specific facts like employers, degrees, grants or citation counts):',
@@ -2190,9 +2189,10 @@ export default {
       return jsonError('too_large', `Profile exceeds ${maxChars} characters.`, 413, allowOrigin)
     }
 
-    const intensity: Intensity = INTENSITIES.includes(body.intensity as Intensity)
-      ? (body.intensity as Intensity)
-      : 'spicy'
+    const rawIntensity = Number(body.intensity)
+    const intensity = Number.isFinite(rawIntensity)
+      ? Math.min(MAX_INTENSITY, Math.max(MIN_INTENSITY, Math.round(rawIntensity)))
+      : DEFAULT_INTENSITY
 
     const allowlist = env.MODEL_ALLOWLIST.split(',')
       .map((slug) => slug.trim())

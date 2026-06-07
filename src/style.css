@@ -158,8 +158,18 @@ textarea.field__text::placeholder { color: var(--faint); }
 
 /* Settings + action row */
 .action-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
-.action-row__intensity { display: flex; flex-direction: column; }
+.action-row__intensity { display: flex; flex-direction: column; min-width: 220px; flex: 1; }
 .action-row__go { display: flex; align-items: center; gap: 10px; }
+.intensity-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.intensity-head .micro-label { margin-bottom: 8px; }
+.intensity-val { font-family: var(--mono); font-size: 11px; letter-spacing: .03em; color: var(--accent); }
+.intensity-range { width: 100%; accent-color: var(--accent); cursor: pointer; }
+
+/* Post-roast options panel (re-roast at a new intensity, inspect papers). */
+.reroast { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); display: grid; gap: 14px; }
+.reroast.hidden { display: none; }
+.reroast__intensity { display: flex; flex-direction: column; max-width: 320px; }
+.reroast__actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .micro-label { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; display: block; }
 .action-row .btn--primary { padding: 12px 30px; }
 
@@ -258,20 +268,6 @@ textarea.field__text::placeholder { color: var(--faint); }
 .spinner { width: 12px; height: 12px; border: 2px solid var(--line-2); border-top-color: var(--accent); border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Intensity segmented */
-.segmented {
-  display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px;
-  overflow: hidden; background: var(--surface);
-}
-.segmented label { position: relative; }
-.segmented input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
-.segmented span {
-  display: block; padding: 9px 20px; font-family: var(--mono);
-  font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--muted); transition: color .15s, background .15s;
-}
-.segmented label:not(:last-child) span { border-right: 1px solid var(--line-2); }
-.segmented input:checked + span { background: var(--accent); color: #1a0d08; font-weight: 700; }
 .hint { font-family: var(--sans); font-size: 12.5px; color: var(--muted); margin: 10px 0 0; max-width: 50ch; }
 
 /* Output */
@@ -366,10 +362,7 @@ textarea.field__text::placeholder { color: var(--faint); }
   .wrap { padding: 28px 18px 56px; }
   h1 { font-size: 25px; }
   .step { padding: 20px 18px; }
-  .segmented span { padding: 9px 14px; }
   .action-row { flex-direction: column; align-items: stretch; }
-  .action-row .segmented { display: grid; grid-template-columns: repeat(3, 1fr); }
-  .action-row .segmented span { text-align: center; }
   .action-row__go { width: 100%; }
   .action-row__go .btn { flex: 1; }
 }

@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.29 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.30 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -259,13 +259,14 @@ Two classes of failure are presented differently:
 {
   "model": "<slug from MODEL_ALLOWLIST, optional; defaults to DEFAULT_MODEL>",
   "profile": "<pasted or extracted profile text>",
-  "intensity": "mild | medium | spicy"
+  "intensity": "<integer 1–10 on the intensity scaler>",
+  "exclude": "<optional string[]: titles the user marked as mis-attributed>"
 }
 ```
 
 `profile` is always text; uploaded files are converted to text in the browser
-before sending. `intensity` defaults to `spicy` when the user has not changed the
-control. The front end pre-checks `profile` length against `MAX_INPUT_CHARS` and
+before sending. `intensity` is an integer on the **1–10 scaler** (the Worker
+clamps it); it defaults to `7` when the user has not moved the slider. The front end pre-checks `profile` length against `MAX_INPUT_CHARS` and
 trims before sending; the Worker re-checks authoritatively.
 
 ### Worker → OpenRouter request
@@ -302,7 +303,7 @@ Front-end build config, `src/config.ts` (public, committed):
 | `WORKER_URL` | the deployed Worker endpoint the front end calls |
 | `DEFAULT_MODEL` | the model slug requested by default |
 | `MAX_INPUT_CHARS` | client-side input cap (mirrors the Worker's) |
-| `DEFAULT_INTENSITY` | the intensity used when the user does not choose (default `spicy`) |
+| `DEFAULT_INTENSITY` | default position of the 1–10 intensity scaler (default `7`) |
 | `orcidLoginEnabled` | show the optional "Log in with ORCID" control (verified badge) |
 | UI copy / helper text | the input helper lines, the self-directed framing, the privacy notice, the in-character error strings, and the login/verified-badge copy |
 
@@ -367,11 +368,11 @@ roast still respects the content rules.
 ### Roast content, register, and safety
 
 Register and intensity. The roast register is comedic and, by default, sharp. The
-interface offers an intensity control with three levels (`mild`, `medium`,
-`spicy`); when the user does not choose, the default is `spicy`. Intensity scales
-sharpness within the content rules below; it never relaxes them. Because the
-spicy default applies on first use, the intensity control is presented clearly so
-a user can dial it down before generating.
+interface offers a continuous **intensity scaler from 1 to 10** (replacing the
+earlier three discrete levels), defaulting to `7`. Intensity scales sharpness
+within the content rules below; it never relaxes them. The same scaler is
+available **after** a roast — alongside an option to inspect/correct the papers —
+so the user can dial intensity up or down and re-roast.
 
 Target. The roast may target both the work and the persona — publications,
 citation patterns, venues, methods, jargon, grant-chasing, and career trajectory
@@ -668,7 +669,7 @@ which is comedic by design but still bounded by the content rules above.
 - First-version input is a paste field plus client-side file upload
   (`.txt`, `.md`, `.pdf`, `.docx`, `.odt`), degrading to paste for unsupported
   files; automated retrieval is deferred.
-- Intensity control with three levels; default `spicy`.
+- Intensity is a continuous 1–10 scaler (default `7`), adjustable before and after a roast; it scales sharpness within the content rules, never relaxing them.
 - The roast may target both the work and the persona, at the model's discretion.
 - Thin input is roasted as-is, without padding or demands for more.
 - Outside knowledge is permitted for recognition and flavour, but no invented

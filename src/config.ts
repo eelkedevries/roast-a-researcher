@@ -2,8 +2,6 @@
 // shipped to the browser, so it must never contain a secret: the Cloudflare
 // Worker holds the API key. See the specification, Data schemas → Configuration.
 
-export type Intensity = 'mild' | 'medium' | 'spicy'
-
 export interface AppConfig {
   /** Deployed Worker endpoint the front end calls. Wired in 003; empty for now. */
   workerUrl: string
@@ -11,8 +9,8 @@ export interface AppConfig {
   defaultModel: string
   /** Client-side input cap, mirroring the Worker's authoritative limit. */
   maxInputChars: number
-  /** Intensity used when the user does not choose one. */
-  defaultIntensity: Intensity
+  /** Default roast intensity on the 1–10 scaler. */
+  defaultIntensity: number
   /** Show the optional "Log in with ORCID" control (verified badge, session-only). */
   orcidLoginEnabled: boolean
 }
@@ -21,11 +19,20 @@ export const config: AppConfig = {
   workerUrl: 'https://roast-a-researcher.eelkedevries.workers.dev',
   defaultModel: 'google/gemini-2.5-flash',
   maxInputChars: 40000,
-  defaultIntensity: 'spicy',
+  defaultIntensity: 7,
   orcidLoginEnabled: true,
 }
 
-export const intensityLevels: readonly Intensity[] = ['mild', 'medium', 'spicy']
+export const MIN_INTENSITY = 1
+export const MAX_INTENSITY = 10
+// Short labels shown beside the intensity slider at a given value.
+export function intensityLabelFor(level: number): string {
+  if (level <= 2) return 'very gentle'
+  if (level <= 4) return 'light'
+  if (level <= 6) return 'sharp'
+  if (level <= 8) return 'cutting'
+  return 'savage'
+}
 
 // User-facing copy. British English throughout. Kept here so wording is adjusted
 // in one place. The error strings are fixed, in-character messages used from the
@@ -40,8 +47,8 @@ export const copy = {
   inputPlaceholder: 'Paste your bio, publications, grants, or CV text here…',
   intensityLabel: 'Intensity',
   intensityHint:
-    'Defaults to spicy. Dial it down before roasting if you would prefer a ' +
-    'gentler touch.',
+    'Slide to set how hard the roast hits — gentle on the left, savage on the ' +
+    'right. You can adjust it and re-roast after seeing the result.',
   roastButton: 'Roast me',
   outputPlaceholder: 'Your roast will appear here.',
   privacyNotice:
