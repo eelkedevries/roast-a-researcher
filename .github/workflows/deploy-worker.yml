@@ -6,8 +6,9 @@
 #
 # The OpenAlex API key is re-applied on every deploy from the OPENALEX_API_KEY
 # repository secret (a dashboard-set Worker secret does not survive `wrangler
-# deploy`, so it must be set through CI to persist). OPENROUTER_API_KEY and
-# IP_HASH_SALT are managed separately via `wrangler secret put` and are untouched.
+# deploy`, so it must be set through CI to persist). The ORCID-login secrets
+# (ORCID_CLIENT_SECRET, SESSION_SECRET) are re-applied the same way. OPENROUTER_API_KEY
+# and IP_HASH_SALT are managed separately via `wrangler secret put` and are untouched.
 name: Deploy Worker
 
 on:
@@ -48,4 +49,25 @@ jobs:
             echo "OpenAlex key applied."
           else
             echo "OPENALEX_API_KEY repo secret not set; skipping (OpenAlex will 429)."
+          fi
+
+      - name: Apply ORCID-login secrets (persists across deploys)
+        working-directory: worker
+        env:
+          ORCID_CLIENT_SECRET: ${{ secrets.ORCID_CLIENT_SECRET }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$ORCID_CLIENT_SECRET" ]; then
+            printf '%s' "$ORCID_CLIENT_SECRET" | npx --yes wrangler@4 secret put ORCID_CLIENT_SECRET
+            echo "ORCID client secret applied."
+          else
+            echo "ORCID_CLIENT_SECRET repo secret not set; skipping (ORCID login disabled)."
+          fi
+          if [ -n "$SESSION_SECRET" ]; then
+            printf '%s' "$SESSION_SECRET" | npx --yes wrangler@4 secret put SESSION_SECRET
+            echo "Session secret applied."
+          else
+            echo "SESSION_SECRET repo secret not set; skipping (ORCID login disabled)."
           fi
