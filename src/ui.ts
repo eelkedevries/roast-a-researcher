@@ -313,58 +313,72 @@ async function doSearch(
   )
   results.textContent = ''
 
+  // Collect candidates, and a per-source note when a source errored or returned
+  // nothing — so a failing source (e.g. OpenAlex) is visible, not silently dropped.
   const found: Array<{ source: SourceKind; candidate: Candidate }> = []
+  const notes: string[] = []
   for (const { source, result } of settled) {
-    for (const candidate of result.candidates ?? []) {
-      found.push({ source, candidate })
+    if (!result.ok) {
+      notes.push(`${SOURCE_LABELS[source]}: ${result.reason ?? 'search failed'}`)
+      continue
     }
-  }
-
-  if (!found.length) {
-    const empty = document.createElement('p')
-    empty.className = 'search__status'
-    empty.textContent = 'No matches found.'
-    results.appendChild(empty)
-    return
+    const cands = result.candidates ?? []
+    if (!cands.length) notes.push(`${SOURCE_LABELS[source]}: no matches`)
+    for (const candidate of cands) found.push({ source, candidate })
   }
 
   // Each candidate is a checkbox row; the platform is tagged behind the name.
   // "Add selected" appends a link row for every ticked candidate, then clears
   // the result list.
-  const checks: Array<{ checkbox: HTMLInputElement; candidate: Candidate }> = []
-  for (const { source, candidate } of found) {
-    const row = document.createElement('label')
-    row.className = 'search__result'
+  if (found.length) {
+    const checks: Array<{ checkbox: HTMLInputElement; candidate: Candidate }> = []
+    for (const { source, candidate } of found) {
+      const row = document.createElement('label')
+      row.className = 'search__result'
 
-    const checkbox = document.createElement('input')
-    checkbox.type = 'checkbox'
-    checkbox.className = 'search__check'
+      const checkbox = document.createElement('input')
+      checkbox.type = 'checkbox'
+      checkbox.className = 'search__check'
 
-    const name = document.createElement('span')
-    name.className = 'search__name'
-    const affil = candidate.affiliation ? ` — ${candidate.affiliation}` : ''
-    name.textContent = `${candidate.name}${affil}`
+      const name = document.createElement('span')
+      name.className = 'search__name'
+      const affil = candidate.affiliation ? ` — ${candidate.affiliation}` : ''
+      name.textContent = `${candidate.name}${affil}`
 
-    const tag = document.createElement('span')
-    tag.className = 'search__tag'
-    tag.textContent = SOURCE_LABELS[source]
+      const tag = document.createElement('span')
+      tag.className = 'search__tag'
+      tag.textContent = SOURCE_LABELS[source]
 
-    row.append(checkbox, name, tag)
-    results.appendChild(row)
-    checks.push({ checkbox, candidate })
+      row.append(checkbox, name, tag)
+      results.appendChild(row)
+      checks.push({ checkbox, candidate })
+    }
+
+    const add = document.createElement('button')
+    add.type = 'button'
+    add.className = 'button button--small search__add'
+    add.textContent = 'Add selected'
+    add.addEventListener('click', () => {
+      const chosen = checks.filter(({ checkbox }) => checkbox.checked)
+      if (!chosen.length) return
+      for (const { candidate } of chosen) addLinkRow(linksContainer, candidate.id)
+      results.textContent = ''
+    })
+    results.appendChild(add)
+  } else if (!notes.length) {
+    const empty = document.createElement('p')
+    empty.className = 'search__status'
+    empty.textContent = 'No matches found.'
+    results.appendChild(empty)
   }
 
-  const add = document.createElement('button')
-  add.type = 'button'
-  add.className = 'button button--small search__add'
-  add.textContent = 'Add selected'
-  add.addEventListener('click', () => {
-    const chosen = checks.filter(({ checkbox }) => checkbox.checked)
-    if (!chosen.length) return
-    for (const { candidate } of chosen) addLinkRow(linksContainer, candidate.id)
-    results.textContent = ''
-  })
-  results.appendChild(add)
+  // Per-source status notes (errors / no matches), always shown for diagnosis.
+  for (const note of notes) {
+    const line = document.createElement('p')
+    line.className = 'search__status'
+    line.textContent = note
+    results.appendChild(line)
+  }
 }
 
 // Validate each non-empty link row by retrieving it via the Worker, marking the

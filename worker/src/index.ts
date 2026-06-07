@@ -1182,10 +1182,16 @@ async function searchOpenalex(
       { headers },
     )
   } catch {
-    return jsonError('source_error', 'Could not reach OpenAlex.', 502, allowOrigin)
+    return jsonError('source_error', 'Could not reach OpenAlex (network).', 502, allowOrigin)
   }
   if (!res.ok) {
-    return jsonError('source_error', 'OpenAlex returned an error.', 502, allowOrigin)
+    const body = (await res.text().catch(() => '')).slice(0, 200)
+    return jsonError(
+      'source_error',
+      `OpenAlex search failed (HTTP ${res.status})${body ? `: ${body}` : ''}`,
+      502,
+      allowOrigin,
+    )
   }
   const data = (await res.json()) as {
     results?: Array<{
