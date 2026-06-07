@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.22 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.23 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -180,10 +180,11 @@ Three independent controls bound the owner's exposure:
 
 ### Model selection
 
-The Worker calls a single flash-class model, pinned in configuration. Because the
-owner funds usage, the default is the cheaper "flash-lite" tier rather than the
-larger flash tier; a flash-class model is more than adequate for short comedic
-generation. Model slugs and prices change frequently and are verified at build
+The Worker calls a single flash-class model, pinned in configuration. The default
+is `google/gemini-2.5-flash` — the full flash tier rather than flash-lite — chosen
+to better sustain a longer (~400-word) comedic roast; the owner funds usage, so
+cost stays a consideration when picking the tier. Model slugs and prices change
+frequently and are verified at build
 against `openrouter.ai/models`; the slug lives in one place
 (`DEFAULT_MODEL` / `MODEL_ALLOWLIST`) and is treated as swappable. Provider
 "latest"-style aliases (for example `~author/family-latest`) are moving targets
@@ -619,8 +620,9 @@ which is comedic by design but still bounded by the content rules above.
 - SSE is relayed by passing the upstream body through without buffering.
 - CORS is pinned to the exact Pages origin; the budget caps, not origin pinning,
   are the real abuse protection.
-- A flash-class model, pinned by slug in config and verified at build; the
-  cheaper flash-lite tier is the default because the owner funds usage.
+- A flash-class model, pinned by slug in config and verified at build; the default
+  is the full `google/gemini-2.5-flash` tier (to sustain a ~400-word roast), with
+  cost still a consideration since the owner funds usage.
 - ORCID is called keyless; OpenAlex requires a **free** API key with a $1/day free
   budget (usage-based pricing, re-verified 2026-06-07) sent as `OPENALEX_API_KEY`.
   `ORCID_TOKEN` stays optional (rate limits only). OpenAlex features need the key.
@@ -648,9 +650,9 @@ which is comedic by design but still bounded by the content rules above.
 
 ## Open items (with defaults to confirm at build)
 
-- Default model slug: a current flash-lite-class slug, confirmed against
-  `openrouter.ai/models` at build (the research reports suggested
-  `google/gemini-2.5-flash-lite`; verify the slug and price before committing).
+- Default model slug: `google/gemini-2.5-flash` (upgraded from flash-lite to
+  sustain a ~400-word roast), confirmed against `openrouter.ai/models` at build —
+  verify the slug and price before committing.
 - Rate-limit values: `DAILY_LIMIT` per IP and the OpenRouter daily budget figure.
 - The exact wording of the system prompt and of the three intensity levels.
 - Whether to ship the no-LLM deterministic fallback as an offline mode.

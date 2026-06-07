@@ -47,7 +47,7 @@ type Intensity = 'mild' | 'medium' | 'spicy'
 const INTENSITIES: readonly Intensity[] = ['mild', 'medium', 'spicy']
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-const MAX_OUTPUT_TOKENS = 900
+const MAX_OUTPUT_TOKENS = 1500
 
 // --- rate-limiting helpers ---
 
@@ -116,7 +116,7 @@ function buildSystemPrompt(intensity: Intensity): string {
     'Style:',
     '- Roast only what is present in the supplied text. Do not pad a thin profile with invented detail or generic academic filler, and do not demand more input; a short profile yields a short roast.',
     '- Target the work and/or the persona — publications, venues, methods, jargon, grant-chasing, self-branding, the gap between presentation and record — whatever is funniest.',
-    '- Write in British English. Keep it to a few punchy sentences.',
+    '- Write in British English. Aim for roughly 400 words (a few tight paragraphs) when the material supports it, and keep it punchy throughout — never pad: a thin profile still yields a shorter roast rather than filler.',
     '',
     `Intensity: ${intensity}. ${intensityDirective(intensity)}`,
     '',

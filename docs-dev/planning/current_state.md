@@ -20,7 +20,9 @@ This file records what *is* (current reality). The binding design canon is `docs
   Papers are **model-extracted**: the roast model emits a JSON block then a
   `===ROAST===` marker then the roast; the FE buffers to the marker, parses the
   JSON (`renderResult`), then streams the roast. Profiles are built from the user's
-  link rows; empty fields/sections are omitted. `MAX_OUTPUT_TOKENS` raised to 900.
+  link rows; empty fields/sections are omitted. Default model is
+  `google/gemini-2.5-flash` and the roast targets ~400 words, so `MAX_OUTPUT_TOKENS`
+  is 1500.
   Also: **"Try a sample"** (zero-cost canned demo, `src/demo.ts`, no model call),
   **"Download data"** (`.md` export) beside **Roast me**, and a segmented intensity
   control (default `spicy`). Warm-palette CSS + Plus Jakarta Sans / Space Mono in

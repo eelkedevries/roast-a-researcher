@@ -7,7 +7,7 @@ compatibility_date = "2026-06-05"
 # (git-ignored) for local `wrangler dev`.
 [vars]
 ALLOW_ORIGIN = "https://eelkedevries.github.io"
-MODEL_ALLOWLIST = "google/gemini-2.5-flash-lite"
+MODEL_ALLOWLIST = "google/gemini-2.5-flash"
 MAX_INPUT_CHARS = "40000"
 DAILY_LIMIT = "50"
 # Contact for the OpenAlex "polite pool" — steadier per-contact rate limits than
