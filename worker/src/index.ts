@@ -115,6 +115,7 @@ function buildSystemPrompt(intensity: Intensity, exclude: string[] = []): string
     '- For a well-known name you may draw on general public knowledge for recognition and flavour, but assert no invented specifics as fact.',
     '',
     'Style:',
+    '- OVERRIDING QUALITY BAR (applies to the whole roast, not just jokes): every single sentence must be genuinely sharp, specific, and funny, and must earn its place. Ruthlessly cut anything generic, obvious, hedged, filler, merely competent, or repetitive — in any part of the output. A short roast made entirely of excellent lines is the goal; never trade quality for length or completeness. If only one line is truly good, the roast is one line.',
     '- Roast only what is present in the supplied text. Do not pad a thin profile with invented detail or generic academic filler, and do not demand more input; a short profile yields a short roast.',
     '- Target the work and/or the persona — publications, venues, methods, jargon, grant-chasing, self-branding, the gap between presentation and record — whatever is funniest.',
     '- Only make a joke if it genuinely lands. The presence of material (awards, grants, degrees, a long CV, many papers) is NEVER itself a reason to joke about it — far better to omit a topic entirely than to include a weak, obvious, or generic joke about it. If grants or awards (or anything else) offer a genuinely sharp angle, use them and name the real ones; if they do not, leave them out completely.',

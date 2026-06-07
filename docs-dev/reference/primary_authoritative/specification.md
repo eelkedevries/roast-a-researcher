@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.28 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.29 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -383,12 +383,15 @@ Thin input. The model roasts only what is present. It does not pad a short input
 with invented detail or generic academic filler, and it does not demand more
 input; a short profile yields a short roast.
 
-Quality bar. Length is dynamic and driven by the **quality**, not the quantity, of
-the material: the roast defaults to short and only grows when there are genuinely
-strong, distinct jokes to make. The mere presence of material (awards, grants,
-degrees, a long CV, many papers) is never itself a reason to joke about it — the
-model omits a topic entirely rather than including a weak, obvious, or generic
-joke. A tight roast of only the best jokes beats a longer, padded one.
+Quality bar. A high quality bar governs the **whole** roast, not just individual
+jokes: every sentence must be genuinely sharp, specific, and funny, and must earn
+its place — anything generic, obvious, hedged, filler, or merely competent is cut,
+in any section. Length is dynamic and driven by the **quality**, not the quantity,
+of the material: the roast defaults to short and only grows when there are
+genuinely strong, distinct jokes to make. The mere presence of material (awards,
+grants, degrees, a long CV, many papers) is never itself a reason to joke about it
+— the model omits a topic entirely rather than including a weak joke. A tight roast
+of only the best lines always beats a longer, padded one.
 
 Outside knowledge. For a well-known name, the model may draw on general public
 knowledge for recognition and flavour. It must not, however, assert invented
