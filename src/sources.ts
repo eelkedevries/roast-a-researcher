@@ -13,6 +13,8 @@ export function detectSource(input: string): { source: SourceKind; id: string } 
   if (/^A\d{5,}$/i.test(s)) return { source: 'openalex', id: s }
   // DBLP person id (pid), e.g. 65/3603 or l/EelkeDeVries.
   if (/^[a-z0-9]{1,4}\/[A-Za-z0-9:_-]+$/i.test(s)) return { source: 'dblp', id: s }
+  // A long bare number is a Semantic Scholar author id (not a GitHub username).
+  if (/^\d{5,}$/.test(s)) return { source: 'semanticscholar', id: s }
 
   // URLs (or host-like tokens).
   if (/^https?:\/\//i.test(s) || s.includes('.')) {
@@ -105,12 +107,13 @@ export async function retrieveSource(
   workerUrl: string,
   source: SourceKind,
   id: string,
+  fresh = false,
 ): Promise<RetrieveResult> {
   try {
     const response = await fetch(`${workerUrl}/retrieve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source, id }),
+      body: JSON.stringify({ source, id, fresh }),
     })
     const data = (await response.json().catch(() => null)) as
       | { text?: string; stats?: SourceStats; charts?: ChartData; error?: string; message?: string }

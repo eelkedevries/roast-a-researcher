@@ -640,7 +640,8 @@ async function exportRetrievedData(
           parts.push(`## ${value}`, '', '_Not a supported link._', '')
           continue
         }
-        const result = await retrieveSource(config.workerUrl, detected.source, detected.id)
+        // Export bypasses the cache so it always reflects the current code/data.
+        const result = await retrieveSource(config.workerUrl, detected.source, detected.id, true)
         parts.push(`## ${detected.source} — ${detected.id}`, '')
         if (!result.ok || !result.text) {
           parts.push(`_Retrieval failed: ${result.reason ?? 'unknown error'}._`, '')

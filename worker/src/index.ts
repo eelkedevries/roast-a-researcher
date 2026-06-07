@@ -139,9 +139,10 @@ async function handleRetrieve(
   } catch {
     return jsonError('bad_request', 'Body is not valid JSON.', 400, allowOrigin)
   }
-  const body = payload as { source?: unknown; id?: unknown }
+  const body = payload as { source?: unknown; id?: unknown; fresh?: unknown }
   const source = typeof body.source === 'string' ? body.source : ''
   const id = typeof body.id === 'string' ? body.id.trim() : ''
+  const fresh = body.fresh === true
   if (!id) {
     return jsonError('bad_request', 'No identifier supplied.', 400, allowOrigin)
   }
@@ -151,13 +152,17 @@ async function handleRetrieve(
   // public data is cached — never user-pasted/uploaded text and never the roast
   // (which is always generated fresh). Cache key is namespaced `rc:` (the daily
   // rate-limit counter uses `rl:`); identifiers are normalised to lower case.
+  // `fresh: true` (used by the data export) skips the read so it reflects current
+  // code/data, while still refreshing the cached copy below.
   const cacheKey = `rc:${source}:${id.toLowerCase()}`
-  const cached = await env.RATE_LIMIT.get(cacheKey)
-  if (cached) {
-    return new Response(cached, {
-      status: 200,
-      headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT', ...corsHeaders(allowOrigin) },
-    })
+  if (!fresh) {
+    const cached = await env.RATE_LIMIT.get(cacheKey)
+    if (cached) {
+      return new Response(cached, {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT', ...corsHeaders(allowOrigin) },
+      })
+    }
   }
 
   let res: Response
