@@ -244,6 +244,11 @@ body {
   color: var(--muted);
 }
 
+.file-list__ocr {
+  flex-basis: auto;
+  margin: 0.3rem 0 0 1.4rem;
+}
+
 .links {
   margin-top: 1rem;
 }

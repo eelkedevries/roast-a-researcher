@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.16 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.17 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -309,9 +309,13 @@ resulting text. Supported formats, extracted client-side:
 - `.odt` — unzip and read `content.xml` in the browser.
 
 Formats that cannot be parsed cleanly in a static front end degrade gracefully
-rather than failing: legacy binary `.doc` and scanned/image-only PDFs are not
-supported, and the interface advises the user to save as PDF or `.docx`, or to
-paste the text. The interface also shows short helper lines for obtaining profile
+rather than failing: legacy binary `.doc` is not supported and the interface
+advises saving as PDF/`.docx` or pasting. For scanned/image-only PDFs (no text
+layer), the interface offers an **opt-in, client-side OCR fallback** (`032`,
+tesseract.js, lazily loaded; the file never leaves the browser; bounded page
+count) rather than only advising to paste; OCR assets download from the
+tesseract.js CDN on first use, and the result is placed in the editable field for
+review. The interface also shows short helper lines for obtaining profile
 text (LinkedIn — **Save to PDF** from the More/Resources menu, then upload or
 paste; Google Scholar — copy the public profile or export citations as CSV;
 ORCID — paste the iD or public record). Nothing is fetched in the first version.

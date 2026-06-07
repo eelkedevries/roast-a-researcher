@@ -5,6 +5,10 @@
 
 export class UnsupportedFileError extends Error {}
 
+// A PDF with no text layer (scanned / image-only). Distinct so the UI can offer
+// the opt-in OCR fallback rather than only advising to paste.
+export class ScannedPdfError extends UnsupportedFileError {}
+
 export async function extractText(file: File): Promise<string> {
   const name = file.name.toLowerCase()
   const ext = name.slice(name.lastIndexOf('.') + 1)
@@ -41,9 +45,50 @@ async function extractPdf(file: File): Promise<string> {
   }
   const out = parts.join('\n').trim()
   if (!out) {
-    throw new UnsupportedFileError(
-      'No text found — this looks like a scanned or image-only PDF. Paste the text instead.',
+    throw new ScannedPdfError(
+      'No text found — this looks like a scanned or image-only PDF.',
     )
+  }
+  return out
+}
+
+// Opt-in OCR for scanned/image-only PDFs (032). Lazily loads tesseract.js and,
+// reusing pdf.js, renders each page to a canvas and recognises the text — entirely
+// in the browser, so the file never leaves the device. OCR assets (the WASM core
+// and the English language data) are downloaded from the tesseract.js CDN on first
+// use. Bounded to `maxPages` to keep time/memory sane on mobile.
+export async function ocrPdf(
+  file: File,
+  onProgress?: (message: string) => void,
+  maxPages = 10,
+): Promise<string> {
+  const pdfjs = await import('pdfjs-dist')
+  const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+  const Tesseract = (await import('tesseract.js')).default
+
+  const data = new Uint8Array(await file.arrayBuffer())
+  const pdf = await pdfjs.getDocument({ data }).promise
+  const pages = Math.min(pdf.numPages, maxPages)
+  const parts: string[] = []
+  for (let i = 1; i <= pages; i++) {
+    onProgress?.(`OCR page ${i} of ${pages}…`)
+    const page = await pdf.getPage(i)
+    const viewport = page.getViewport({ scale: 2 })
+    const canvas = document.createElement('canvas')
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) continue
+    await page.render({ canvas, canvasContext: ctx, viewport }).promise
+    const result = await Tesseract.recognize(canvas, 'eng')
+    parts.push(result.data.text)
+    canvas.width = 0
+    canvas.height = 0
+  }
+  const out = parts.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+  if (!out) {
+    throw new UnsupportedFileError('OCR found no readable text. Paste the text instead.')
   }
   return out
 }

@@ -1,5 +1,5 @@
 import { config, copy, intensityLevels, type Intensity } from './config'
-import { extractText, UnsupportedFileError } from './extract'
+import { extractText, ocrPdf, UnsupportedFileError, ScannedPdfError } from './extract'
 import { copyText, downloadText, downloadImage } from './share'
 import {
   detectSource,
@@ -239,6 +239,37 @@ async function processFiles(
           ? err.message
           : 'Could not read that file.'
       item.appendChild(reason)
+
+      // Scanned/image-only PDF: offer an opt-in, client-side OCR fallback.
+      if (err instanceof ScannedPdfError) {
+        const ocr = document.createElement('button')
+        ocr.type = 'button'
+        ocr.className = 'button button--small file-list__ocr'
+        ocr.textContent = 'Try OCR (scanned PDF)'
+        ocr.addEventListener('click', () => {
+          ocr.disabled = true
+          reason.textContent = 'Loading OCR…'
+          void ocrPdf(file, (msg) => {
+            reason.textContent = msg
+          })
+            .then((text) => {
+              appendToInput(textarea, text)
+              status.textContent = '✓'
+              item.classList.remove('file-list__item--fail')
+              item.classList.add('file-list__item--ok')
+              reason.textContent = 'Extracted via OCR — review the text before roasting.'
+              sources.add(file.name)
+              ocr.remove()
+              counter.textContent = String(textarea.value.length)
+            })
+            .catch((e) => {
+              ocr.disabled = false
+              reason.textContent =
+                e instanceof UnsupportedFileError ? e.message : 'OCR failed. Paste the text instead.'
+            })
+        })
+        item.appendChild(ocr)
+      }
     }
     counter.textContent = String(textarea.value.length)
   }
