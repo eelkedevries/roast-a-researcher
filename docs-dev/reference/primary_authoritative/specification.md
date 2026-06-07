@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.17 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.18 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -319,6 +319,13 @@ review. The interface also shows short helper lines for obtaining profile
 text (LinkedIn — **Save to PDF** from the More/Resources menu, then upload or
 paste; Google Scholar — copy the public profile or export citations as CSV;
 ORCID — paste the iD or public record). Nothing is fetched in the first version.
+
+A **"Fake a researcher to try it out"** demo button fills a fully simulated,
+clearly fictional profile together with invented metrics, stats and chart series,
+then runs a live roast on it — so a visitor sees the whole pipeline (roast,
+personalia, stats card, charts) in one click without supplying real data. Only the
+input data is simulated; the roast is generated normally and the content rules
+apply. The demo target is invented, not a real person.
 
 ### Roast content, register, and safety
 

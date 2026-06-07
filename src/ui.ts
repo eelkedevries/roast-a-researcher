@@ -1,5 +1,6 @@
 import { config, copy, intensityLevels, type Intensity } from './config'
 import { extractText, ocrPdf, UnsupportedFileError, ScannedPdfError } from './extract'
+import { demoResearcher } from './demo'
 import { copyText, downloadText, downloadImage } from './share'
 import {
   detectSource,
@@ -70,6 +71,7 @@ export function mountApp(root: HTMLElement): void {
         </div>
 
         <button id="roast" class="button" type="button">${copy.roastButton}</button>
+        <button id="demo" class="button button--small" type="button">Fake a researcher to try it out</button>
       </section>
 
       <section class="panel" aria-label="Roast output">
@@ -116,6 +118,22 @@ export function mountApp(root: HTMLElement): void {
   if (textarea && button && output) {
     button.addEventListener('click', () => {
       void runRoast(textarea, root, output, button, sources)
+    })
+  }
+
+  // Demo: fill a fully simulated researcher (profile + fake stats + fake charts)
+  // and run the real roast on it, so a visitor sees every feature in one click.
+  const demoBtn = root.querySelector<HTMLButtonElement>('#demo')
+  if (demoBtn && textarea && counter && button && output) {
+    demoBtn.addEventListener('click', () => {
+      textarea.value = demoResearcher.profile
+      counter.textContent = String(textarea.value.length)
+      sources.clear()
+      sources.add('Simulated demo data')
+      void runRoast(textarea, root, output, button, sources, {
+        stats: demoResearcher.stats,
+        charts: demoResearcher.charts,
+      })
     })
   }
 
@@ -544,6 +562,7 @@ async function runRoast(
   output: HTMLElement,
   button: HTMLButtonElement,
   sources: Set<string>,
+  demoData?: { stats: SourceStats; charts: ChartData },
 ): Promise<void> {
   if (!config.workerUrl) {
     setOutput(output, 'Roasting is not configured in this build yet (no Worker URL).')
@@ -563,6 +582,12 @@ async function runRoast(
     root,
     sources,
   )
+  // Demo mode supplies simulated stats/charts so the cards populate without a real
+  // retrieval; the roast itself is still generated live from the (fake) profile.
+  if (demoData) {
+    linkStats.push(demoData.stats)
+    linkCharts.push(demoData.charts)
+  }
   const profile = [textarea.value.trim(), ...linkTexts]
     .filter(Boolean)
     .join('\n\n')
