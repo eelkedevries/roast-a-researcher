@@ -5,7 +5,7 @@
 // via Workers KV (005). See the specification, Architecture → The Worker.
 
 import { metricsSummary, computeMetrics } from './metrics'
-import { continentOf } from './geo'
+import { continentOf, countryName } from './geo'
 import { trendSummary, type YearPoint } from './trends'
 
 // Minimal shape of the Workers KV binding we use (avoids a full
@@ -881,7 +881,7 @@ async function openalexCoauthors(
       .slice(0, limit)
     const countries: OpenAlexGroup[] = [...countryTally.entries()]
       .sort((a, b) => b[1] - a[1])
-      .map(([key, count]) => ({ key, count, display: key }))
+      .map(([key, count]) => ({ key, count, display: countryName(key) }))
     return { coauthors, countries }
   } catch {
     return { coauthors: [], countries: [] }

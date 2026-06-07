@@ -47,3 +47,16 @@ for (const [continent, codes] of Object.entries(GROUPS)) {
 export function continentOf(code: string): string | null {
   return CONTINENT_BY_CODE[code.toUpperCase()] ?? null
 }
+
+// Full English country name for a 2-letter code (e.g. NL → Netherlands), via the
+// runtime's Intl data; falls back to the code if unavailable.
+let regionNames: Intl.DisplayNames | null = null
+export function countryName(code: string): string {
+  const c = code.toUpperCase()
+  try {
+    regionNames ??= new Intl.DisplayNames(['en'], { type: 'region' })
+    return regionNames.of(c) ?? c
+  } catch {
+    return c
+  }
+}
