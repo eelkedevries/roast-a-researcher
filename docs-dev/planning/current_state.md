@@ -11,8 +11,11 @@ This file records what *is* (current reality). The binding design canon is `docs
 - **Build/dev scaffold** — Vite + TypeScript static site, building to `dist/`.
 - **Front-end shell** — `src/ui.ts` renders the **"Focused Console" UI (Direction A
   redesign)**: two cards — a numbered 2-step **Roast input** (a search-by-name hero
-  as the primary input + a collapsible "manual" `<details>` for profile links and
-  paste/upload) and a **Roast output** card. The output is now **four sections**
+  as the primary input + a collapsible "manual" `<details>` with three groups: a
+  dedicated **Personal website** field (forced `website` source = full same-site
+  crawl, "+ Add website" for more), **Profile links** (ORCID/OpenAlex/GitHub/SS/DBLP),
+  and **paste text or upload documents** (PDF/Word/ODT/txt/md via `src/extract.ts`))
+  and a **Roast output** card. The output is now **four sections**
   (`036`, spec v1.22): **Personalia** (name, position, current/previous
   affiliations, research domain, focus keywords, education + Profiles/Grants/Awards
   subsections), **Profile** (the streamed roast with a caret), **Papers** (main

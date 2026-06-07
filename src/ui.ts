@@ -81,21 +81,26 @@ export function mountApp(root: HTMLElement): void {
           <div id="search-results" class="search-results"></div>
 
           <details class="manual" id="manual">
-            <summary class="manual__summary"><span class="manual__chevron" aria-hidden="true">›</span> Or add a link or paste text manually</summary>
+            <summary class="manual__summary"><span class="manual__chevron" aria-hidden="true">›</span> Or add a personal website, links, or upload documents</summary>
             <div class="manual__body">
               <div class="manual__group">
-                <span class="micro-label">Profile links <span class="micro-label__sub">ORCID · OpenAlex · GitHub · Semantic Scholar · DBLP · any website</span></span>
+                <span class="micro-label">Personal website <span class="micro-label__sub">the whole site is scraped — CV, media, publications…</span></span>
+                <div id="websites"></div>
+                <button class="chip" id="add-website" type="button"><span class="chip__icon" aria-hidden="true">+</span> Add website</button>
+              </div>
+              <div class="manual__group">
+                <span class="micro-label">Profile links <span class="micro-label__sub">ORCID · OpenAlex · GitHub · Semantic Scholar · DBLP</span></span>
                 <div id="links"></div>
                 <button class="chip" id="add-link" type="button"><span class="chip__icon" aria-hidden="true">+</span> Add link</button>
               </div>
               <div class="manual__group">
-                <span class="micro-label">Paste or upload text</span>
+                <span class="micro-label">Paste text or upload documents <span class="micro-label__sub">PDF · Word · ODT · txt · md</span></span>
                 <div class="field" id="dropzone">
                   <textarea id="profile" class="field__text" placeholder="${copy.inputPlaceholder}"></textarea>
                   <input id="file" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" hidden />
                   <div class="field__bar">
                     <div class="field__actions">
-                      <button class="chip" id="choose" type="button"><span class="chip__icon" aria-hidden="true">↑</span> Upload files</button>
+                      <button class="chip" id="choose" type="button"><span class="chip__icon" aria-hidden="true">↑</span> Upload documents</button>
                     </div>
                     <span class="counter" id="counter">0 / ${config.maxInputChars}</span>
                   </div>
@@ -283,6 +288,11 @@ export function mountApp(root: HTMLElement): void {
     if (files.length) void processFiles(files, textarea, setCounter, fileList, sources)
   })
 
+  // Personal website(s) — always fully crawled.
+  const websitesContainer = $<HTMLElement>('#websites')
+  addWebsiteRow(websitesContainer)
+  $<HTMLButtonElement>('#add-website').addEventListener('click', () => addWebsiteRow(websitesContainer))
+
   // Profile links.
   addLinkRow(linksContainer)
   $<HTMLButtonElement>('#add-link').addEventListener('click', () => addLinkRow(linksContainer))
@@ -297,6 +307,8 @@ export function mountApp(root: HTMLElement): void {
   const resetInputs = (): void => {
     linksContainer.textContent = ''
     addLinkRow(linksContainer)
+    websitesContainer.textContent = ''
+    addWebsiteRow(websitesContainer)
     textarea.value = ''
     setCounter()
     fileList.textContent = ''
@@ -473,6 +485,40 @@ function addLinkRow(container: HTMLElement, value = ''): HTMLElement {
   return row
 }
 
+// A dedicated "Personal website" row: any value is treated as a website URL and
+// the whole site is crawled (forced `website` source), with the same status UI.
+function addWebsiteRow(container: HTMLElement, value = ''): HTMLElement {
+  const row = document.createElement('div')
+  row.className = 'link-row'
+  row.dataset.website = '1'
+  row.innerHTML =
+    '<div class="link-row__top">' +
+    '<input class="input link-row__input" type="url" placeholder="https://your-personal-site.com (whole site is scraped)" />' +
+    '<button class="link-row__remove" type="button" aria-label="Remove website">×</button></div>' +
+    '<div class="link-row__meta" hidden>' +
+    '<span class="link-row__tag"></span>' +
+    '<a class="link-row__inspect" target="_blank" rel="noopener">Open <span aria-hidden="true">↗</span></a>' +
+    '<span class="link-row__retrieve"></span></div>' +
+    '<small class="link-row__reason"></small>'
+  const input = row.querySelector<HTMLInputElement>('.link-row__input') as HTMLInputElement
+  if (value) input.value = value
+  ;(row.querySelector('.link-row__remove') as HTMLButtonElement).addEventListener('click', () =>
+    row.remove(),
+  )
+  input.addEventListener('input', () => updateLinkRow(row))
+  input.addEventListener('blur', () => updateLinkRow(row))
+  container.appendChild(row)
+  updateLinkRow(row)
+  return row
+}
+
+// Resolve a row's input to a source: website rows force the `website` (full-crawl)
+// source; ordinary link rows auto-detect.
+function rowSource(row: HTMLElement, value: string): { source: SourceKind; id: string } | null {
+  if (row.dataset.website === '1') return value ? { source: 'website', id: value } : null
+  return detectSource(value)
+}
+
 // Validate one row: show the source tag + record link immediately; debounce the
 // retrieval and surface a ✓/✗ status. (The roast re-retrieves authoritatively.)
 function updateLinkRow(row: HTMLElement): void {
@@ -492,7 +538,7 @@ function updateLinkRow(row: HTMLElement): void {
     retrieve.textContent = ''
     return
   }
-  const det = detectSource(v)
+  const det = rowSource(row, v)
   if (!det) {
     meta.hidden = true
     row.classList.add('bad')
@@ -834,7 +880,7 @@ async function validateLinks(
       meta.hidden = true
       continue
     }
-    const detected = detectSource(value)
+    const detected = rowSource(row, value)
     if (!detected) {
       meta.hidden = true
       row.classList.add('bad')
