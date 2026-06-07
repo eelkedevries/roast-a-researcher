@@ -30,6 +30,7 @@ export interface Env {
   GITHUB_TOKEN?: string
   ORCID_TOKEN?: string
   OPENALEX_API_KEY?: string
+  OPENALEX_MAILTO?: string
 }
 
 type Intensity = 'mild' | 'medium' | 'spicy'
@@ -477,6 +478,10 @@ function parseOpenalexId(input: string): string | null {
 function openalexUrl(path: string, env: Env, params: Record<string, string> = {}): string {
   const url = new URL(`https://api.openalex.org/${path}`)
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
+  // The polite pool (a `mailto`) gives steadier per-contact limits than the shared
+  // common pool, which a Cloudflare egress IP can exhaust; this keeps OpenAlex
+  // search and retrieval reliable. The API key, when set, raises limits further.
+  if (env.OPENALEX_MAILTO) url.searchParams.set('mailto', env.OPENALEX_MAILTO)
   if (env.OPENALEX_API_KEY) url.searchParams.set('api_key', env.OPENALEX_API_KEY)
   return url.toString()
 }
@@ -1169,7 +1174,11 @@ async function searchOpenalex(
   let res: Response
   try {
     res = await fetch(
-      openalexUrl('authors', env, { search: query, 'per-page': '5' }),
+      openalexUrl('authors', env, {
+        search: query,
+        'per-page': '5',
+        select: 'id,display_name,last_known_institutions,affiliations',
+      }),
       { headers },
     )
   } catch {
@@ -1183,6 +1192,7 @@ async function searchOpenalex(
       id?: string
       display_name?: string
       last_known_institutions?: Array<{ display_name?: string }>
+      affiliations?: Array<{ institution?: { display_name?: string } }>
     }>
   }
   const list: Candidate[] = []
@@ -1192,7 +1202,10 @@ async function searchOpenalex(
     list.push({
       id,
       name: a.display_name ?? id,
-      affiliation: a.last_known_institutions?.[0]?.display_name ?? null,
+      affiliation:
+        a.last_known_institutions?.[0]?.display_name ??
+        a.affiliations?.[0]?.institution?.display_name ??
+        null,
     })
   }
   return candidates(list, allowOrigin)
