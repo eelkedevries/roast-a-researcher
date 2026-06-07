@@ -83,7 +83,8 @@ This file records what *is* (current reality). The binding design canon is `docs
   author IDs) — added under a new spec "name-matched provision" (v1.14): results
   labelled "may include namesakes", explicit selection, PubMed ORCID-anchored
   (`[auid]`) when an ORCID is given. Search now spans GitHub, ORCID, OpenAlex,
-  Semantic Scholar, DBLP, arXiv, PubMed.
+  Semantic Scholar, DBLP. **arXiv and PubMed were implemented then disabled
+  (spec v1.15, 2026-06-07) — namesake risk; their code path is removed.**
 - Remaining prompt: `018_retrieval_cache` (KV cache of `/retrieve`). **Not run —
   blocked on a spec decision** — it conflicts with the locked "Data flow and
   statelessness" rule; the spec must be revised (cache only public-record
