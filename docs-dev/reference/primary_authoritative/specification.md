@@ -320,12 +320,13 @@ text (LinkedIn — **Save to PDF** from the More/Resources menu, then upload or
 paste; Google Scholar — copy the public profile or export citations as CSV;
 ORCID — paste the iD or public record). Nothing is fetched in the first version.
 
-A **"Fake a researcher to try it out"** demo button fills a fully simulated,
-clearly fictional profile together with invented metrics, stats and chart series,
-then runs a live roast on it — so a visitor sees the whole pipeline (roast,
-personalia, stats card, charts) in one click without supplying real data. Only the
-input data is simulated; the roast is generated normally and the content rules
-apply. The demo target is invented, not a real person.
+A **"Fake a researcher to try it out"** demo button renders a fully simulated,
+clearly fictional researcher — invented profile, a **saved (pre-generated) roast**,
+and invented metrics, stats and chart series — entirely client-side, with **no
+model/Worker call**. This costs nothing, never touches the daily limit, and works
+even offline, while showcasing the whole output (roast, personalia, stats card,
+charts) in one click. The demo target is invented, not a real person; the saved
+roast still respects the content rules.
 
 ### Roast content, register, and safety
 

@@ -121,19 +121,13 @@ export function mountApp(root: HTMLElement): void {
     })
   }
 
-  // Demo: fill a fully simulated researcher (profile + fake stats + fake charts)
-  // and run the real roast on it, so a visitor sees every feature in one click.
+  // Demo: render a fully simulated researcher (profile + saved roast + fake stats +
+  // fake charts) entirely client-side — no Worker/model call, so it costs nothing
+  // and works even at the daily limit.
   const demoBtn = root.querySelector<HTMLButtonElement>('#demo')
-  if (demoBtn && textarea && counter && button && output) {
+  if (demoBtn && textarea && counter && output) {
     demoBtn.addEventListener('click', () => {
-      textarea.value = demoResearcher.profile
-      counter.textContent = String(textarea.value.length)
-      sources.clear()
-      sources.add('Simulated demo data')
-      void runRoast(textarea, root, output, button, sources, {
-        stats: demoResearcher.stats,
-        charts: demoResearcher.charts,
-      })
+      showDemo(root, textarea, counter, output)
     })
   }
 
@@ -556,13 +550,37 @@ function renderStatsCard(root: HTMLElement, stats: SourceStats[]): void {
   card.removeAttribute('hidden')
 }
 
+// Render the saved demo researcher with no network call: fills the input, shows
+// the personalia, the saved roast, the simulated stats card and charts, and the
+// share controls — a zero-cost showcase of every feature.
+function showDemo(
+  root: HTMLElement,
+  textarea: HTMLTextAreaElement,
+  counter: HTMLElement,
+  output: HTMLElement,
+): void {
+  textarea.value = demoResearcher.profile
+  counter.textContent = String(textarea.value.length)
+  const demoSources = new Set<string>(['Simulated demo data'])
+  setOutput(output, demoResearcher.roast)
+  fillPersonalia(
+    root,
+    { name: demoResearcher.name, affiliation: demoResearcher.affiliation },
+    demoSources,
+  )
+  renderStatsCard(root, [demoResearcher.stats])
+  const chartsCard = root.querySelector<HTMLElement>('#charts-card')
+  if (chartsCard) renderCharts(chartsCard, [demoResearcher.charts])
+  root.querySelector('#share')?.removeAttribute('hidden')
+  output.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 async function runRoast(
   textarea: HTMLTextAreaElement,
   root: HTMLElement,
   output: HTMLElement,
   button: HTMLButtonElement,
   sources: Set<string>,
-  demoData?: { stats: SourceStats; charts: ChartData },
 ): Promise<void> {
   if (!config.workerUrl) {
     setOutput(output, 'Roasting is not configured in this build yet (no Worker URL).')
@@ -582,12 +600,6 @@ async function runRoast(
     root,
     sources,
   )
-  // Demo mode supplies simulated stats/charts so the cards populate without a real
-  // retrieval; the roast itself is still generated live from the (fake) profile.
-  if (demoData) {
-    linkStats.push(demoData.stats)
-    linkCharts.push(demoData.charts)
-  }
   const profile = [textarea.value.trim(), ...linkTexts]
     .filter(Boolean)
     .join('\n\n')

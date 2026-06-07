@@ -7,12 +7,35 @@
 import type { SourceStats, ChartData } from './sources'
 
 export interface DemoResearcher {
+  name: string
+  affiliation: string
   profile: string
+  roast: string
   stats: SourceStats
   charts: ChartData
 }
 
 export const demoResearcher: DemoResearcher = {
+  name: 'Prof. Dr. Maximilian Q. Buzzworth III',
+  affiliation: 'Institute for Disruptive Paradigms, University of the Cutting Edge',
+  roast: [
+    'Maximilian Q. Buzzworth III — three names and a "III", which is the most ' +
+      'citations anything attached to you has received this decade. Four hundred and ' +
+      'eighty-seven papers, two hundred-odd citations: a body of work with the ' +
+      'gravitational pull of a press release. You have published "Towards a Framework ' +
+      'for Frameworks", which is what happens when you reach the edge of having ' +
+      'anything to say and decide to frame it instead.',
+    '',
+    'Seventy-one percent of your citations are your own, which means you are less a ' +
+      'scholar than a man clapping for himself in an empty lecture theatre and ' +
+      'logging it as applause. Single-authored, every one — not out of brilliance, ' +
+      'but because nobody else wanted their name near "On the Disruptive Potential ' +
+      'of Disruption." Seventy-three ERC applications, zero awarded: a rejection ' +
+      'rate so pure it ought to have its own h-index.',
+    '',
+    'Still, "LinkedIn Top Voice" — congratulations on being loudest in the one room ' +
+      'where citations do not count. Synergy, holistically, at scale.',
+  ].join('\n'),
   profile: [
     'Name: Prof. Dr. Maximilian Q. Buzzworth III',
     'Affiliation: Institute for Disruptive Paradigms, University of the Cutting Edge',
