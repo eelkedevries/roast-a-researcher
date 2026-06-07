@@ -826,15 +826,16 @@ interface Coauthor {
   count: number
 }
 
-// Frequent named co-authors (024): tally the subject's works' authorships by
-// OpenAlex author id (excluding the subject), keeping the most-shared collaborators
-// with a representative institution. Factual — names only as OpenAlex reports them.
+// Frequent named co-authors (024) and collaboration geography, both from the
+// subject's works' authorships in a single fetch. Co-authors are tallied by
+// OpenAlex author id (excluding the subject); countries are tallied from the
+// authorship institutions' country codes (reliable, unlike a country group_by).
 async function openalexCoauthors(
   id: string,
   env: Env,
   headers: Record<string, string>,
   limit: number,
-): Promise<Coauthor[]> {
+): Promise<{ coauthors: Coauthor[]; countries: OpenAlexGroup[] }> {
   try {
     const res = await fetch(
       openalexUrl('works', env, {
@@ -845,18 +846,23 @@ async function openalexCoauthors(
       }),
       { headers },
     )
-    if (!res.ok) return []
+    if (!res.ok) return { coauthors: [], countries: [] }
     const data = (await res.json()) as {
       results?: Array<{
         authorships?: Array<{
           author?: { id?: string; display_name?: string }
-          institutions?: Array<{ display_name?: string }>
+          institutions?: Array<{ display_name?: string; country_code?: string }>
         }>
       }>
     }
     const tally = new Map<string, Coauthor>()
+    const countryTally = new Map<string, number>()
     for (const work of data.results ?? []) {
       for (const a of work.authorships ?? []) {
+        for (const inst of a.institutions ?? []) {
+          const cc = inst.country_code?.toUpperCase()
+          if (cc && /^[A-Z]{2}$/.test(cc)) countryTally.set(cc, (countryTally.get(cc) ?? 0) + 1)
+        }
         const aid = a.author?.id?.match(/A\d+/)?.[0]
         if (!aid || aid === id) continue
         const existing = tally.get(aid)
@@ -869,12 +875,16 @@ async function openalexCoauthors(
           })
       }
     }
-    return [...tally.values()]
+    const coauthors = [...tally.values()]
       .filter((c) => c.count >= 2)
       .sort((x, y) => y.count - x.count)
       .slice(0, limit)
+    const countries: OpenAlexGroup[] = [...countryTally.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([key, count]) => ({ key, count, display: key }))
+    return { coauthors, countries }
   } catch {
-    return []
+    return { coauthors: [], countries: [] }
   }
 }
 
@@ -1001,19 +1011,19 @@ async function buildOpenalex(
   const metrics = metricsSummary(works, new Date().getUTCFullYear())
   if (metrics) lines.push(metrics)
 
-  // Fetch the three group_by aggregations once and share them between the
-  // enrichment lines (019) and the chart data (025), instead of re-fetching.
-  const [oaGroups, countryGroups, venueGroups] = await Promise.all([
+  // Fetch the open-access and venue aggregations once (shared between the
+  // enrichment lines and the charts). Co-authors and collaboration geography come
+  // from a single authorships fetch below.
+  const [oaGroups, venueGroups] = await Promise.all([
     openalexGroupBy(id, 'open_access.oa_status', env, headers),
-    openalexGroupBy(id, 'authorships.institutions.country_code', env, headers),
     openalexGroupBy(id, 'primary_location.source.id', env, headers),
   ])
+  const { coauthors, countries: countryGroups } = await openalexCoauthors(id, env, headers, 8)
 
   // Open-access breakdown and collaboration geography (019).
   for (const line of openalexEnrichment(oaGroups, countryGroups)) lines.push(line)
 
   // Frequent named co-authors (024), beyond the country/continent counts above.
-  const coauthors = await openalexCoauthors(id, env, headers, 8)
   if (coauthors.length) {
     lines.push('Frequent co-authors:')
     for (const c of coauthors) {
