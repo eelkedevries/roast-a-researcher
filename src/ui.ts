@@ -154,6 +154,7 @@ export function mountApp(root: HTMLElement): void {
         <section class="rsec" id="sec-profile">
           <h2 class="rsec__h">Profile</h2>
           <div class="output placeholder" id="output" aria-live="polite">${copy.outputPlaceholder}</div>
+          <p class="runmeta hidden" id="runmeta"></p>
         </section>
 
         <section class="rsec hidden" id="sec-papers">
@@ -1075,6 +1076,78 @@ function toggleNumbers(root: HTMLElement, stats: SourceStats[], charts: ChartDat
   root.querySelector('#sec-numbers')?.classList.toggle('hidden', !(stats.length || hasCharts))
 }
 
+// Extract a complete leading JSON object from a string by brace-balancing (string
+// aware), independent of any marker or surrounding prose/code fences. Returns the
+// parsed object and the index just past its closing brace, or null if there is no
+// balanced object yet (still streaming) or it does not parse.
+function extractLeadingJson(s: string): { obj: unknown; end: number } | null {
+  const start = s.indexOf('{')
+  if (start === -1) return null
+  let depth = 0
+  let inStr = false
+  let esc = false
+  for (let i = start; i < s.length; i++) {
+    const c = s[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (c === '\\') esc = true
+      else if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') inStr = true
+    else if (c === '{') depth++
+    else if (c === '}') {
+      depth--
+      if (depth === 0) {
+        try {
+          return { obj: JSON.parse(s.slice(start, i + 1)), end: i + 1 }
+        } catch {
+          return null
+        }
+      }
+    }
+  }
+  return null
+}
+
+interface Usage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  cost?: number
+}
+
+// Render the run metadata below the roast: elapsed time, input size, model, tokens
+// and (when OpenRouter reports it) the dollar cost.
+function renderRunMeta(
+  root: HTMLElement,
+  info: { elapsedMs: number; inputChars: number; model: string; usage: Usage | null },
+): void {
+  const el = root.querySelector<HTMLElement>('#runmeta')
+  if (!el) return
+  const n = (v: number): string => v.toLocaleString('en-GB')
+  const parts: string[] = []
+  parts.push(`Generated in ${(info.elapsedMs / 1000).toFixed(1)}s`)
+  const promptTok = info.usage?.prompt_tokens
+  parts.push(
+    `Input ${n(info.inputChars)} chars${typeof promptTok === 'number' ? ` (${n(promptTok)} tokens)` : ''}`,
+  )
+  parts.push(`Model ${info.model}`)
+  const total = info.usage?.total_tokens
+  if (typeof total === 'number') {
+    const p = info.usage?.prompt_tokens
+    const c = info.usage?.completion_tokens
+    const breakdown =
+      typeof p === 'number' && typeof c === 'number' ? ` (prompt ${n(p)} + completion ${n(c)})` : ''
+    parts.push(`${n(total)} tokens${breakdown}`)
+  }
+  if (typeof info.usage?.cost === 'number') {
+    parts.push(`$${info.usage.cost.toFixed(4)}`)
+  }
+  el.textContent = parts.join(' · ')
+  el.classList.remove('hidden')
+}
+
 // Append the "ORCID-verified" badge to the Name row when the logged-in researcher's
 // iD matches an ORCID iD among the selected link rows. Cosmetic and session-only.
 function maybeAddVerifiedBadge(root: HTMLElement): void {
@@ -1168,12 +1241,14 @@ async function runRoast(
     return
   }
 
+  const started = performance.now()
   button.disabled = true
   collapseSearchToSelected(root)
   root.querySelector('#share')?.classList.add('hidden')
   root.querySelector('#sec-personalia')?.classList.add('hidden')
   root.querySelector('#sec-papers')?.classList.add('hidden')
   root.querySelector('#sec-numbers')?.classList.add('hidden')
+  root.querySelector('#runmeta')?.classList.add('hidden')
   root.querySelector('#stats-card')?.setAttribute('hidden', '')
   root.querySelector('#charts-card')?.setAttribute('hidden', '')
   statusOut(output, 'Checking links…')
@@ -1229,30 +1304,33 @@ async function runRoast(
     }
     const reader = body.getReader()
     const decoder = new TextDecoder()
-    const SENTINEL = '===ROAST==='
     let buffer = ''
     let raw = ''
     let metaDone = false
     let roastStart = 0
+    let usage: Usage | null = null
 
+    // Parse the leading JSON personalia block as soon as it is complete, without
+    // depending on the marker or clean formatting. An optional `===ROAST===` marker
+    // (and surrounding whitespace) after the object is skipped.
     const tryMeta = (): void => {
       if (metaDone) return
-      const idx = raw.indexOf(SENTINEL)
-      if (idx === -1) return
-      metaDone = true
-      roastStart = idx + SENTINEL.length
-      const metaPart = raw.slice(0, idx)
-      const open = metaPart.indexOf('{')
-      const close = metaPart.lastIndexOf('}')
-      let data: Personalia | null = null
-      if (open !== -1 && close > open) {
-        try {
-          data = JSON.parse(metaPart.slice(open, close + 1)) as Personalia
-        } catch {
-          data = null
+      const firstBrace = raw.indexOf('{')
+      // No JSON block coming (roast started as prose): give up once enough arrived.
+      if (firstBrace === -1 || raw.slice(0, firstBrace).trim().length > 40) {
+        if (raw.trim().length > 80) {
+          metaDone = true
+          roastStart = 0
+          renderResult(root, null)
         }
+        return
       }
-      renderResult(root, data)
+      const res = extractLeadingJson(raw)
+      if (!res) return // object not complete yet
+      metaDone = true
+      const after = raw.slice(res.end).match(/^\s*(?:===ROAST===)?\s*/)
+      roastStart = res.end + (after ? after[0].length : 0)
+      renderResult(root, res.obj as Personalia)
     }
 
     for (;;) {
@@ -1270,7 +1348,11 @@ async function runRoast(
           break
         }
         try {
-          const json = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> }
+          const json = JSON.parse(payload) as {
+            choices?: Array<{ delta?: { content?: string } }>
+            usage?: Usage
+          }
+          if (json.usage) usage = json.usage
           const delta = json.choices?.[0]?.delta?.content
           if (delta) {
             raw += delta
@@ -1284,9 +1366,16 @@ async function runRoast(
     }
 
     if (!metaDone) {
-      // Model did not follow the format; treat the whole output as the roast.
-      roastStart = 0
-      renderResult(root, null)
+      // Stream ended before the marker fired; try one last parse of a leading block.
+      const res = extractLeadingJson(raw)
+      if (res) {
+        const after = raw.slice(res.end).match(/^\s*(?:===ROAST===)?\s*/)
+        roastStart = res.end + (after ? after[0].length : 0)
+        renderResult(root, res.obj as Personalia)
+      } else {
+        roastStart = 0
+        renderResult(root, null)
+      }
     }
     const roast = raw.slice(roastStart).replace(/^\s+/, '').trim()
     if (!roast) {
@@ -1294,6 +1383,12 @@ async function runRoast(
     } else {
       output.className = 'output'
       output.textContent = roast
+      renderRunMeta(root, {
+        elapsedMs: performance.now() - started,
+        inputChars: profile.length,
+        model: config.defaultModel,
+        usage,
+      })
       renderStatsCard(root, linkStats)
       const chartsCard = root.querySelector<HTMLElement>('#charts-card')
       if (chartsCard) renderCharts(chartsCard, linkCharts)

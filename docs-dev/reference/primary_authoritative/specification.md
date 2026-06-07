@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.23 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.24 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -445,12 +445,21 @@ The output is organised into four sections, in order:
 Personalia and Papers are produced by the model as a **structured JSON block
 emitted before the roast**, drawn only from the supplied text (no invented
 values), followed by a line containing exactly `===ROAST===` and then the roast.
-The front end buffers until the marker, parses the JSON to render the structured
-sections, and streams the remainder as the roast; the raw JSON and marker are
+The front end extracts the leading JSON object by brace-balancing (string-aware,
+independent of the marker or surrounding formatting), renders the structured
+sections, then streams the remainder as the roast; the raw JSON and any marker are
 never shown. Fields the model cannot determine are omitted rather than shown as
 "unknown". The **Profiles** list is built by the front end from the links the user
-supplied (it is not model-derived). If the model does not emit a parseable block,
-the whole output is shown as the roast and the structured sections stay hidden.
+supplied (it is not model-derived). If no parseable leading object is found, the
+whole output is shown as the roast and the structured sections stay hidden.
+
+Beneath the roast a small **run-metadata** line reports the elapsed generation time
+(from pressing Roast me), the input size (characters, plus prompt tokens when
+known), the model used, the token usage (total, prompt + completion), and the
+dollar cost. Token counts and cost come from the OpenRouter usage block requested
+with `usage: { include: true }` and surfaced in the final stream chunk; the time is
+measured client-side. Cost/tokens are omitted gracefully if the provider does not
+report them.
 
 The stats card shows basic bibliometrics for any source that returned them
 (currently OpenAlex: publications, citations, h-index, i10-index, g-index, mean

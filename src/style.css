@@ -317,6 +317,8 @@ textarea.field__text::placeholder { color: var(--faint); }
 }
 @keyframes blink { 50% { opacity: 0; } }
 .status-line { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+.runmeta { margin: 12px 0 0; font-family: var(--mono); font-size: 11px; letter-spacing: .03em; color: var(--faint); line-height: 1.6; }
+.runmeta.hidden { display: none; }
 .share { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
 .share.hidden { display: none; }
 
