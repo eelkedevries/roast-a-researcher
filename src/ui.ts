@@ -13,6 +13,7 @@ import {
   type RetrieveResult,
 } from './sources'
 import { renderCharts } from './charts'
+import { consumeAuthFragment, getSession, loginUrl, logout, normaliseOrcid } from './auth'
 
 const SOURCE_LABELS: Record<SourceKind, string> = {
   github: 'GitHub',
@@ -57,6 +58,7 @@ export function mountApp(root: HTMLElement): void {
       <header>
         <p class="kicker">Roast · a · Researcher</p>
         <h1>${copy.title}</h1>
+        <div class="auth" id="auth-control"></div>
       </header>
 
       <section class="form" aria-label="Roast input">
@@ -167,6 +169,42 @@ export function mountApp(root: HTMLElement): void {
 
   // Provenance of the current input (uploaded filenames, retrieved sources).
   const sources = new Set<string>()
+
+  // ORCID login control (session-only). Read any token the Worker returned in the
+  // URL fragment, then render the header control reflecting the current session.
+  consumeAuthFragment()
+  const renderAuthControl = (): void => {
+    const el = root.querySelector<HTMLElement>('#auth-control')
+    if (!el) return
+    if (!config.orcidLoginEnabled) {
+      el.hidden = true
+      return
+    }
+    el.hidden = false
+    el.textContent = ''
+    const session = getSession()
+    if (session) {
+      const who = document.createElement('span')
+      who.className = 'auth__who'
+      who.textContent = `${copy.loggedInLabel} ${session.orcid}`
+      const out = document.createElement('button')
+      out.type = 'button'
+      out.className = 'auth__btn'
+      out.textContent = copy.logoutButton
+      out.addEventListener('click', () => {
+        logout()
+        renderAuthControl()
+      })
+      el.append(who, out)
+    } else {
+      const link = document.createElement('a')
+      link.className = 'auth__btn auth__btn--login'
+      link.href = loginUrl()
+      link.textContent = copy.loginButton
+      el.append(link)
+    }
+  }
+  renderAuthControl()
 
   const setCounter = (): void => {
     const n = textarea.value.length
@@ -840,7 +878,30 @@ function fillPersonalia(
   set('p-name', value(header?.name))
   set('p-affil', value(header?.affiliation))
   set('p-sources', used.join(', '))
+  maybeAddVerifiedBadge(root)
   root.querySelector('#personalia')?.classList.remove('hidden')
+}
+
+// Append the "ORCID-verified" badge to the Name row when the logged-in researcher's
+// iD matches an ORCID iD among the selected link rows. Cosmetic and session-only.
+function maybeAddVerifiedBadge(root: HTMLElement): void {
+  const nameEl = root.querySelector<HTMLElement>('#p-name')
+  if (!nameEl) return
+  nameEl.querySelector('.badge')?.remove()
+  const session = getSession()
+  if (!session) return
+  const me = normaliseOrcid(session.orcid)
+  if (!me) return
+  const selected = Array.from(root.querySelectorAll<HTMLInputElement>('.link-row__input'))
+    .map((i) => detectSource(i.value))
+    .filter((d): d is { source: SourceKind; id: string } => d?.source === 'orcid')
+    .map((d) => normaliseOrcid(d.id))
+  if (!selected.includes(me)) return
+  const badge = document.createElement('span')
+  badge.className = 'badge'
+  badge.textContent = `✓ ${copy.verifiedBadge}`
+  badge.title = copy.verifiedTitle
+  nameEl.appendChild(badge)
 }
 
 function renderStatsCard(root: HTMLElement, stats: SourceStats[]): void {
