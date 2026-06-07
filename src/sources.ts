@@ -64,12 +64,22 @@ export interface ChartData {
   topVenues?: Array<{ venue: string; count: number }>
 }
 
+// A paper from a structured source, for the cross-platform merge/de-dupe.
+export interface ApiPaper {
+  title: string
+  year: number | null
+  venue: string | null
+  citations: number | null
+  doi: string | null
+}
+
 export interface RetrieveResult {
   ok: boolean
   text?: string
   reason?: string
   stats?: SourceStats
   charts?: ChartData
+  papers?: ApiPaper[]
 }
 
 export interface Candidate {
@@ -123,10 +133,10 @@ export async function retrieveSource(
       body: JSON.stringify({ source, id, fresh }),
     })
     const data = (await response.json().catch(() => null)) as
-      | { text?: string; stats?: SourceStats; charts?: ChartData; error?: string; message?: string }
+      | { text?: string; stats?: SourceStats; charts?: ChartData; papers?: ApiPaper[]; error?: string; message?: string }
       | null
     if (response.ok && data?.text) {
-      return { ok: true, text: data.text, stats: data.stats, charts: data.charts }
+      return { ok: true, text: data.text, stats: data.stats, charts: data.charts, papers: data.papers }
     }
     return { ok: false, reason: data?.message ?? 'Could not retrieve this link.' }
   } catch {

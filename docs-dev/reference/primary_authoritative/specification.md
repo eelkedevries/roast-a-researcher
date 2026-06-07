@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.24 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.25 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -439,7 +439,13 @@ The output is organised into four sections, in order:
    subsections for **Profiles** (the online-profile links the user supplied),
    **Grants**, and **Awards**. Empty fields and empty subsections are omitted.
 2. **Profile** — the roast text itself; its first sentence names the researcher.
-3. **Papers** — the main papers with citation counts where available.
+3. **Papers** — papers **collected across every structured source** (ORCID,
+   OpenAlex, Semantic Scholar, DBLP), combined and **de-duplicated** (by DOI, else
+   normalised title; the highest citation count and any missing venue/year are
+   merged in), sorted by citations then year. Each source returns a structured
+   `papers[]`; the front end does the merge. This overrides the model's per-source
+   extraction whenever any structured papers are present (pasted text / websites
+   still fall back to the model's `papers`).
 4. **The numbers** — the stats card and charts (below).
 
 Personalia and Papers are produced by the model as a **structured JSON block

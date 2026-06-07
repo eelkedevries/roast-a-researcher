@@ -11,6 +11,7 @@ import {
   type SourceStats,
   type ChartData,
   type RetrieveResult,
+  type ApiPaper,
 } from './sources'
 import { renderCharts } from './charts'
 import { consumeAuthFragment, getSession, loginUrl, logout, normaliseOrcid } from './auth'
@@ -814,7 +815,7 @@ function openalexIdOf(detected: { source: SourceKind; id: string }): string | nu
 async function validateLinks(
   root: HTMLElement,
   sources: Set<string>,
-): Promise<{ texts: string[]; stats: SourceStats[]; charts: ChartData[] }> {
+): Promise<{ texts: string[]; stats: SourceStats[]; charts: ChartData[]; papers: ApiPaper[] }> {
   type Entry = { retrieve: HTMLElement; detected: { source: SourceKind; id: string } }
   const entries: Entry[] = []
   for (const row of Array.from(root.querySelectorAll<HTMLElement>('.link-row'))) {
@@ -854,7 +855,7 @@ async function validateLinks(
       (a.detected.source === 'openalex' ? 1 : 0) - (b.detected.source === 'openalex' ? 1 : 0),
   )
 
-  const collected: Array<{ text: string; stats?: SourceStats; charts?: ChartData }> = []
+  const collected: Array<{ text: string; stats?: SourceStats; charts?: ChartData; papers?: ApiPaper[] }> = []
   const coveredOpenAlex = new Set<string>()
   for (const { retrieve, detected } of entries) {
     const aId = openalexIdOf(detected)
@@ -872,7 +873,7 @@ async function validateLinks(
       retrieve.className = 'link-row__retrieve is-ok'
       retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
       retrieve.title = ''
-      collected.push({ text: res.text, stats: res.stats, charts: res.charts })
+      collected.push({ text: res.text, stats: res.stats, charts: res.charts, papers: res.papers })
       sources.add(SOURCE_LABELS[detected.source])
       const k = openalexKeyOf(res.text)
       if (k) coveredOpenAlex.add(k)
@@ -893,7 +894,33 @@ async function validateLinks(
     }
   }
   const charts = kept.flatMap((k) => (k.charts ? [k.charts] : []))
-  return { texts, stats, charts }
+  const papers = kept.flatMap((k) => k.papers ?? [])
+  return { texts, stats, charts, papers }
+}
+
+// Merge papers from every source and remove duplicates: key on DOI when present,
+// else a normalised title. Keep the highest citation count and fill in any missing
+// venue/year; sort by citations then year (most notable first).
+function mergePapers(papers: ApiPaper[]): Paper[] {
+  const norm = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const map = new Map<string, Paper>()
+  for (const p of papers) {
+    const title = (p.title || '').trim()
+    if (!title) continue
+    const key = p.doi ? `doi:${p.doi}` : `t:${norm(title)}`
+    const existing = map.get(key)
+    if (!existing) {
+      map.set(key, { title, venue: p.venue ?? null, year: p.year ?? null, citations: p.citations ?? null })
+      continue
+    }
+    if ((p.citations ?? -1) > (existing.citations ?? -1)) existing.citations = p.citations ?? existing.citations
+    if (!existing.venue && p.venue) existing.venue = p.venue
+    if (existing.year == null && p.year != null) existing.year = p.year
+    if (title.length > (existing.title?.length ?? 0)) existing.title = title
+  }
+  return [...map.values()].sort(
+    (a, b) => (b.citations ?? -1) - (a.citations ?? -1) || (b.year ?? 0) - (a.year ?? 0),
+  )
 }
 
 function randomError(): string {
@@ -1253,10 +1280,12 @@ async function runRoast(
   root.querySelector('#charts-card')?.setAttribute('hidden', '')
   statusOut(output, 'Checking links…')
 
-  const { texts: linkTexts, stats: linkStats, charts: linkCharts } = await validateLinks(
-    root,
-    sources,
-  )
+  const {
+    texts: linkTexts,
+    stats: linkStats,
+    charts: linkCharts,
+    papers: linkPapers,
+  } = await validateLinks(root, sources)
   const profile = [textarea.value.trim(), ...linkTexts].filter(Boolean).join('\n\n').trim()
   if (!profile) {
     manual.open = true
@@ -1389,6 +1418,10 @@ async function runRoast(
         model: config.defaultModel,
         usage,
       })
+      // Structured papers from all sources, merged and de-duplicated, take
+      // precedence over the model's per-source extraction.
+      const merged = mergePapers(linkPapers)
+      if (merged.length) renderPapers(root, merged.slice(0, 100))
       renderStatsCard(root, linkStats)
       const chartsCard = root.querySelector<HTMLElement>('#charts-card')
       if (chartsCard) renderCharts(chartsCard, linkCharts)

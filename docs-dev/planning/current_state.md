@@ -24,7 +24,12 @@ This file records what *is* (current reality). The binding design canon is `docs
   brace-balanced, marker-optional extractor (`extractLeadingJson`) so personalia
   still render if the model drops the `===ROAST===` marker. A **run-metadata** line
   under the roast shows elapsed time, input size, model, token usage and dollar cost
-  (from OpenRouter `usage: { include: true }` in the final stream chunk). Default
+  (from OpenRouter `usage: { include: true }` in the final stream chunk). **Papers
+  are merged across sources** (`038`): each structured retrieval returns a
+  `papers[]` (ORCID works+DOIs, a ~50-work OpenAlex list, Semantic Scholar papers,
+  DBLP publications); the FE `mergePapers` de-dupes by DOI/normalised title, keeps
+  the max citations, and renders the combined list (overriding model papers when
+  any structured papers exist). Default
   model is `google/gemini-2.5-flash`; the roast targets ~400 words, so
   `MAX_OUTPUT_TOKENS` is 1500.
   Also: **"Try a sample"** (zero-cost canned demo, `src/demo.ts`, no model call),

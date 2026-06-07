@@ -738,7 +738,20 @@ async function retrieveOrcid(
           }>
         }>
       }
-      works?: { group?: Array<{ 'work-summary'?: Array<{ title?: { title?: { value?: string } } }> }> }
+      works?: {
+        group?: Array<{
+          'work-summary'?: Array<{
+            title?: { title?: { value?: string } }
+            'publication-date'?: { year?: { value?: string } } | null
+            'external-ids'?: {
+              'external-id'?: Array<{
+                'external-id-type'?: string
+                'external-id-value'?: string
+              }>
+            } | null
+          }>
+        }>
+      }
     }
   }
 
@@ -804,10 +817,23 @@ async function retrieveOrcid(
   if (awards.length) lines.push('Awards:', ...awards)
 
   const titles: string[] = []
+  const orcidPapers: ApiPaper[] = []
   for (const group of record['activities-summary']?.works?.group ?? []) {
-    const title = group['work-summary']?.[0]?.title?.title?.value
-    if (title) titles.push(title.trim())
-    if (titles.length >= 15) break
+    const ws = group['work-summary']?.[0]
+    const title = ws?.title?.title?.value
+    if (!title) continue
+    if (titles.length < 15) titles.push(title.trim())
+    if (orcidPapers.length < 100) {
+      const year = Number(ws?.['publication-date']?.year?.value) || null
+      let doi: string | null = null
+      for (const eid of ws?.['external-ids']?.['external-id'] ?? []) {
+        if ((eid['external-id-type'] ?? '').toLowerCase() === 'doi') {
+          doi = normDoi(eid['external-id-value'])
+          break
+        }
+      }
+      orcidPapers.push({ title: title.trim(), year, venue: null, citations: null, doi })
+    }
   }
   if (titles.length) {
     lines.push('Selected works:')
@@ -819,6 +845,7 @@ async function retrieveOrcid(
   // alone — without separately adding an OpenAlex link. Skipped if no key/budget.
   let stats: OpenAlexResult['stats'] | undefined
   let charts: OpenAlexResult['charts']
+  let oaPapers: ApiPaper[] = []
   try {
     const oaHeaders = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
     const lookup = await fetch(
@@ -843,6 +870,7 @@ async function retrieveOrcid(
           lines.push('', oa.text)
           stats = oa.stats
           charts = oa.charts
+          oaPapers = oa.papers
         } else {
           lines.push('', '(OpenAlex profile found but could not be retrieved.)')
         }
@@ -852,10 +880,13 @@ async function retrieveOrcid(
     lines.push('', '(OpenAlex enrichment skipped: network error.)')
   }
 
-  return new Response(JSON.stringify({ text: lines.join('\n'), stats, charts }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
-  })
+  return new Response(
+    JSON.stringify({ text: lines.join('\n'), stats, charts, papers: [...orcidPapers, ...oaPapers] }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
+    },
+  )
 }
 
 // --- OpenAlex ---
@@ -993,6 +1024,64 @@ function abstractFromInvertedIndex(
     for (const p of positions) words[p] = word
   }
   return words.filter((w) => w !== undefined).join(' ').trim()
+}
+
+// A paper as returned to the front end by any structured source, for the
+// cross-platform merge/de-dupe (038). DOI is normalised (bare, lower-case) so the
+// same work from different sources collapses to one entry.
+interface ApiPaper {
+  title: string
+  year: number | null
+  venue: string | null
+  citations: number | null
+  doi: string | null
+}
+
+function normDoi(doi: string | null | undefined): string | null {
+  if (!doi) return null
+  const d = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').trim().toLowerCase()
+  return d || null
+}
+
+// A lighter, larger works fetch (no abstracts) for the combined Papers list.
+async function openalexPapers(
+  id: string,
+  env: Env,
+  headers: Record<string, string>,
+  limit: number,
+): Promise<ApiPaper[]> {
+  try {
+    const res = await fetch(
+      openalexUrl('works', env, {
+        filter: `author.id:${id}`,
+        'per-page': String(limit),
+        sort: 'cited_by_count:desc',
+        select: 'title,publication_year,cited_by_count,doi,primary_location',
+      }),
+      { headers },
+    )
+    if (!res.ok) return []
+    const data = (await res.json()) as {
+      results?: Array<{
+        title?: string
+        publication_year?: number
+        cited_by_count?: number
+        doi?: string | null
+        primary_location?: { source?: { display_name?: string } | null } | null
+      }>
+    }
+    return (data.results ?? [])
+      .filter((w) => w.title)
+      .map((w) => ({
+        title: (w.title ?? '').trim(),
+        year: w.publication_year ?? null,
+        venue: w.primary_location?.source?.display_name ?? null,
+        citations: w.cited_by_count ?? null,
+        doi: normDoi(w.doi),
+      }))
+  } catch {
+    return []
+  }
 }
 
 interface OpenAlexRichWork {
@@ -1267,6 +1356,7 @@ interface OpenAlexResult {
   text: string
   stats: { source: string; title: string; entries: Array<{ label: string; value: string }> }
   charts: Record<string, unknown> | undefined
+  papers: ApiPaper[]
 }
 
 // Builds the full OpenAlex result (roast text + stats + chart data) for a known
@@ -1380,6 +1470,8 @@ async function buildOpenalex(
   // titles, where they appeared, and what they were about — to roast.
   const ABSTRACT_CHARS = 320
   const topWorks = (await openalexTopWorks(id, env, headers, 8)).filter((w) => w.title)
+  // A wider list (no abstracts) feeds the cross-source Papers merge (038).
+  const papers = await openalexPapers(id, env, headers, 50)
 
   const citedness = topWorks
     .map((w) => w.journalCitedness)
@@ -1468,7 +1560,7 @@ async function buildOpenalex(
   const trends = trendSummary(yearPoints, dominantVenue)
   if (trends.length) lines.push('Trends:', ...trends)
 
-  return { text: lines.join('\n'), stats, charts }
+  return { text: lines.join('\n'), stats, charts, papers }
 }
 
 // OpenAlex /retrieve: validate the id, build the result, wrap as a Response.
@@ -1518,21 +1610,30 @@ async function retrieveDblp(input: string, allowOrigin: string): Promise<Respons
   const xml = await res.text()
   const name = xml.match(/<dblpperson[^>]*\sname="([^"]+)"/)?.[1] ?? pid
 
-  // Each publication is wrapped in <r>…</r>; pull title, year and venue per record.
-  type Pub = { title: string; year: number | null; venue: string }
+  // Each publication is wrapped in <r>…</r>; pull title, year, venue and DOI.
+  type Pub = { title: string; year: number | null; venue: string; doi: string | null }
   const pubs: Pub[] = []
   for (const rec of xml.split('<r>').slice(1)) {
     const title = rec.match(/<title>([\s\S]*?)<\/title>/)?.[1]
     if (!title) continue
     const year = rec.match(/<year>(\d{4})<\/year>/)?.[1]
     const venue = rec.match(/<(?:journal|booktitle)>([\s\S]*?)<\/(?:journal|booktitle)>/)?.[1]
+    const ee = rec.match(/<ee[^>]*>([\s\S]*?)<\/ee>/)?.[1]
     pubs.push({
       title: unescapeXml(title),
       year: year ? Number(year) : null,
       venue: venue ? unescapeXml(venue) : '',
+      doi: ee ? normDoi(unescapeXml(ee).match(/doi\.org\/(.+)$/i)?.[1]) : null,
     })
   }
   pubs.sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
+  const papers: ApiPaper[] = pubs.slice(0, 100).map((p) => ({
+    title: p.title,
+    year: p.year,
+    venue: p.venue || null,
+    citations: null,
+    doi: p.doi,
+  }))
 
   const lines: string[] = [`DBLP: ${unescapeXml(name)} (${pid})`, `Publications listed: ${pubs.length}`]
   const top = pubs.slice(0, 25)
@@ -1543,7 +1644,7 @@ async function retrieveDblp(input: string, allowOrigin: string): Promise<Respons
       lines.push(`- "${p.title}"${meta ? ` (${meta})` : ''}`)
     }
   }
-  return new Response(JSON.stringify({ text: lines.join('\n') }), {
+  return new Response(JSON.stringify({ text: lines.join('\n'), papers }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
   })
@@ -1587,7 +1688,7 @@ async function retrieveSemanticScholar(input: string, allowOrigin: string): Prom
   let res: Response
   try {
     res = await fetch(
-      `https://api.semanticscholar.org/graph/v1/author/${authorId}?fields=name,affiliations,paperCount,citationCount,hIndex,papers.title,papers.year,papers.citationCount,papers.tldr`,
+      `https://api.semanticscholar.org/graph/v1/author/${authorId}?fields=name,affiliations,paperCount,citationCount,hIndex,papers.title,papers.year,papers.citationCount,papers.venue,papers.externalIds,papers.tldr`,
       { headers },
     )
   } catch {
@@ -1608,7 +1709,14 @@ async function retrieveSemanticScholar(input: string, allowOrigin: string): Prom
     paperCount?: number
     citationCount?: number
     hIndex?: number
-    papers?: Array<{ title?: string; year?: number; citationCount?: number; tldr?: { text?: string } | null }>
+    papers?: Array<{
+      title?: string
+      year?: number
+      citationCount?: number
+      venue?: string | null
+      externalIds?: { DOI?: string | null } | null
+      tldr?: { text?: string } | null
+    }>
   }
   const lines: string[] = [`Semantic Scholar: ${a.name ?? authorId}`]
   if (a.affiliations?.length) lines.push(`Affiliation: ${a.affiliations.join('; ')}`)
@@ -1636,7 +1744,17 @@ async function retrieveSemanticScholar(input: string, allowOrigin: string): Prom
       { label: 'h-index', value: String(a.hIndex ?? 0) },
     ],
   }
-  return new Response(JSON.stringify({ text: lines.join('\n'), stats }), {
+  const apiPapers: ApiPaper[] = (a.papers ?? [])
+    .filter((p) => p.title)
+    .slice(0, 100)
+    .map((p) => ({
+      title: (p.title ?? '').trim(),
+      year: p.year ?? null,
+      venue: p.venue ?? null,
+      citations: p.citationCount ?? null,
+      doi: normDoi(p.externalIds?.DOI),
+    }))
+  return new Response(JSON.stringify({ text: lines.join('\n'), stats, papers: apiPapers }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
   })
