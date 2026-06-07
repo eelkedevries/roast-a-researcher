@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.11 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.12 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -469,11 +469,13 @@ scraping:
   technically active researchers.
 - **Crossref** — works by DOI or author, used as enrichment once an identifier or
   DOI list exists; called from the Worker with a contact `mailto`.
-- **Semantic Scholar** — the free, keyless Graph API (`/paper/batch`) enriches the
-  top works (by DOI from OpenAlex) with influential-citation counts and TLDR
-  summaries. No key; the unauthenticated rate limit is respected and enrichment
-  degrades silently when unavailable. It is an enrichment of works, not a
-  standalone identifier source in the input panel.
+- **Semantic Scholar** — the free, keyless Graph API. Used two ways: (a) `/paper/batch`
+  enriches OpenAlex top works (by DOI) with influential-citation counts and TLDR
+  summaries; and (b) as a first-class source via `/author/search` and
+  `/author/{id}` — author candidates (name + affiliation) and a retrieved profile
+  (paper count, citation count, h-index, top papers with TLDRs), anchored on the
+  Semantic Scholar `authorId`. No key (the unauthenticated 5,000/5-min limit is
+  respected; 429 degrades visibly).
 
 Identity is anchored on a stable identifier (ORCID iD or DOI) rather than inferred
 from a name, to avoid disambiguation errors.

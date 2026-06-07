@@ -49,7 +49,7 @@ export function mountApp(root: HTMLElement): void {
               placeholder="Researcher name" />
             <button id="search-btn" class="button button--small search__btn" type="button">Search</button>
           </div>
-          <p class="field__hint">Searches GitHub, ORCID and OpenAlex. Google Scholar and LinkedIn have no open search — paste or upload those.</p>
+          <p class="field__hint">Searches GitHub, ORCID, OpenAlex and Semantic Scholar. Google Scholar and LinkedIn have no open search — paste or upload those.</p>
           <div id="search-results" class="search__results"></div>
         </div>
 
@@ -282,11 +282,12 @@ function addLinkRow(container: HTMLElement, value = ''): void {
   container.appendChild(row)
 }
 
-const SEARCH_SOURCES: readonly SourceKind[] = ['github', 'orcid', 'openalex']
+const SEARCH_SOURCES: readonly SourceKind[] = ['github', 'orcid', 'openalex', 'semanticscholar']
 const SOURCE_LABELS: Record<SourceKind, string> = {
   github: 'GitHub',
   orcid: 'ORCID',
   openalex: 'OpenAlex',
+  semanticscholar: 'Semantic Scholar',
 }
 
 // Search every supported source by name at once and render the merged candidate

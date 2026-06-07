@@ -151,6 +151,8 @@ async function handleRetrieve(
       return retrieveOrcid(id, env, allowOrigin)
     case 'openalex':
       return retrieveOpenalex(id, env, allowOrigin)
+    case 'semanticscholar':
+      return retrieveSemanticScholar(id, allowOrigin)
     default:
       return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
   }
@@ -1059,6 +1061,104 @@ async function buildOpenalex(
 }
 
 // OpenAlex /retrieve: validate the id, build the result, wrap as a Response.
+// Semantic Scholar as a first-class source (028): author profile + top papers.
+async function retrieveSemanticScholar(input: string, allowOrigin: string): Promise<Response> {
+  const authorId = input.match(/\d{3,}/)?.[0]
+  if (!authorId) {
+    return jsonError('invalid_identifier', 'That is not a valid Semantic Scholar author id.', 400, allowOrigin)
+  }
+  const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
+  let res: Response
+  try {
+    res = await fetch(
+      `https://api.semanticscholar.org/graph/v1/author/${authorId}?fields=name,affiliations,paperCount,citationCount,hIndex,papers.title,papers.year,papers.citationCount,papers.tldr`,
+      { headers },
+    )
+  } catch {
+    return jsonError('source_error', 'Could not reach Semantic Scholar.', 502, allowOrigin)
+  }
+  if (res.status === 404) {
+    return jsonError('not_found', 'No Semantic Scholar author with that id.', 404, allowOrigin)
+  }
+  if (res.status === 429) {
+    return jsonError('rate_limited', 'Semantic Scholar rate limit reached. Try again shortly.', 429, allowOrigin)
+  }
+  if (!res.ok) {
+    return jsonError('source_error', `Semantic Scholar failed (HTTP ${res.status}).`, 502, allowOrigin)
+  }
+  const a = (await res.json()) as {
+    name?: string
+    affiliations?: string[]
+    paperCount?: number
+    citationCount?: number
+    hIndex?: number
+    papers?: Array<{ title?: string; year?: number; citationCount?: number; tldr?: { text?: string } | null }>
+  }
+  const lines: string[] = [`Semantic Scholar: ${a.name ?? authorId}`]
+  if (a.affiliations?.length) lines.push(`Affiliation: ${a.affiliations.join('; ')}`)
+  lines.push(
+    `Papers: ${a.paperCount ?? 0}; total citations: ${a.citationCount ?? 0}; h-index: ${a.hIndex ?? 'n/a'}`,
+  )
+  const papers = (a.papers ?? [])
+    .filter((p) => p.title)
+    .sort((x, y) => (y.citationCount ?? 0) - (x.citationCount ?? 0))
+    .slice(0, 8)
+  if (papers.length) {
+    lines.push('Most-cited papers:')
+    for (const p of papers) {
+      const yr = p.year ? `, ${p.year}` : ''
+      lines.push(`- "${p.title}"${yr} — cited ${p.citationCount ?? 0}`)
+      if (p.tldr?.text) lines.push(`  TL;DR: ${p.tldr.text}`)
+    }
+  }
+  const stats = {
+    source: 'semanticscholar',
+    title: `${a.name ?? authorId} — Semantic Scholar`,
+    entries: [
+      { label: 'Papers', value: String(a.paperCount ?? papers.length) },
+      { label: 'Citations', value: String(a.citationCount ?? 0) },
+      { label: 'h-index', value: String(a.hIndex ?? 0) },
+    ],
+  }
+  return new Response(JSON.stringify({ text: lines.join('\n'), stats }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
+  })
+}
+
+async function searchSemanticScholar(query: string, allowOrigin: string): Promise<Response> {
+  const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
+  let res: Response
+  try {
+    res = await fetch(
+      `https://api.semanticscholar.org/graph/v1/author/search?query=${encodeURIComponent(query)}&fields=name,affiliations,paperCount,hIndex&limit=5`,
+      { headers },
+    )
+  } catch {
+    return jsonError('source_error', 'Could not reach Semantic Scholar.', 502, allowOrigin)
+  }
+  if (res.status === 429) {
+    return jsonError('rate_limited', 'Semantic Scholar rate limit reached. Try again shortly.', 429, allowOrigin)
+  }
+  if (!res.ok) {
+    return jsonError('source_error', `Semantic Scholar search failed (HTTP ${res.status}).`, 502, allowOrigin)
+  }
+  const data = (await res.json()) as {
+    data?: Array<{ authorId?: string; name?: string; affiliations?: string[]; paperCount?: number }>
+  }
+  const list: Candidate[] = []
+  for (const a of data.data ?? []) {
+    if (!a.authorId) continue
+    list.push({
+      id: a.authorId,
+      name: a.name ?? a.authorId,
+      affiliation:
+        a.affiliations?.[0] ?? (a.paperCount != null ? `${a.paperCount} papers` : null),
+    })
+  }
+  return candidates(list, allowOrigin)
+}
+
 async function retrieveOpenalex(
   input: string,
   env: Env,
@@ -1129,6 +1229,8 @@ async function handleSearch(
       return searchOpenalex(query, env, allowOrigin)
     case 'orcid':
       return searchOrcid(query, allowOrigin)
+    case 'semanticscholar':
+      return searchSemanticScholar(query, allowOrigin)
     default:
       return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
   }

@@ -2,7 +2,7 @@
 // via the Worker's /retrieve path. Arbitrary URLs (Scholar, LinkedIn, personal
 // sites) are not supported — they return null and the UI advises pasting text.
 
-export type SourceKind = 'orcid' | 'openalex' | 'github'
+export type SourceKind = 'orcid' | 'openalex' | 'github' | 'semanticscholar'
 
 export function detectSource(input: string): { source: SourceKind; id: string } | null {
   const s = input.trim()
@@ -20,6 +20,10 @@ export function detectSource(input: string): { source: SourceKind; id: string } 
       if (host === 'orcid.org' || host.endsWith('.orcid.org')) return { source: 'orcid', id: s }
       if (host === 'openalex.org' || host.endsWith('.openalex.org')) return { source: 'openalex', id: s }
       if (host === 'github.com' || host.endsWith('.github.com')) return { source: 'github', id: s }
+      if (host === 'semanticscholar.org' || host.endsWith('.semanticscholar.org')) {
+        const m = url.pathname.match(/(\d{3,})/)
+        return m ? { source: 'semanticscholar', id: m[1] } : null
+      }
       return null // a URL we do not support
     } catch {
       return null
