@@ -456,6 +456,39 @@ function updateLinkRow(row: HTMLElement): void {
 
 // --- search by name ---
 
+function normaliseName(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// Lower score = closer match to the query. `full` is true when the candidate name
+// contains the entire query name (so those rank first and stay out of the foldout).
+function rankName(name: string, q: string, qTokens: string[]): { score: number; full: boolean } {
+  const n = normaliseName(name)
+  if (!q) return { score: 0, full: true }
+  if (n === q) return { score: 0, full: true }
+  const nTokens = n ? n.split(' ') : []
+  const nSet = new Set(nTokens)
+  const overlap = qTokens.filter((t) => nSet.has(t)).length
+  const phrase = n.includes(q)
+  const full = phrase || overlap === qTokens.length
+  if (full) {
+    // Penalise extra name parts and length difference so the shortest exact-ish
+    // match (e.g. "Iliana Samara") beats longer ones ("Iliana Samara Hurtado…").
+    const extra = Math.max(0, nTokens.length - qTokens.length)
+    return {
+      score: 1 + extra + (phrase ? 0 : 0.25) + Math.min(0.9, Math.abs(n.length - q.length) / 200),
+      full: true,
+    }
+  }
+  return { score: 100 - overlap, full: false }
+}
+
 async function doSearch(
   query: string,
   results: HTMLElement,
@@ -498,30 +531,34 @@ async function doSearch(
     return
   }
 
-  // One visible entry per source (the top match); the rest go under a foldout so
-  // the user can pick a different person if the top hit may not be them.
-  const bySource = new Map<SourceKind, Candidate[]>()
-  for (const { source, candidate } of found) {
-    const arr = bySource.get(source) ?? []
-    arr.push(candidate)
-    bySource.set(source, arr)
+  // Rank all candidates across sources by similarity to the query. Entries that
+  // contain the full name show first (closest/shortest first); the rest go under a
+  // single "see more" foldout. When nothing contains the full name, show the top 3.
+  const nq = normaliseName(query)
+  const qTokens = nq ? nq.split(' ') : []
+  const ranked = found
+    .map((f) => ({ ...f, ...rankName(f.candidate.name, nq, qTokens) }))
+    .sort((a, b) => a.score - b.score)
+  let primary = ranked.filter((r) => r.full)
+  let rest = ranked.filter((r) => !r.full)
+  if (!primary.length) {
+    primary = ranked.slice(0, 3)
+    rest = ranked.slice(3)
   }
-  for (const source of SEARCH_SOURCES) {
-    const cands = bySource.get(source)
-    if (!cands || !cands.length) continue
-    results.appendChild(searchResultRow(source, cands[0], linksContainer))
-    if (cands.length > 1) {
-      const more = document.createElement('details')
-      more.className = 'search__more'
-      const summary = document.createElement('summary')
-      summary.className = 'search__more-summary'
-      summary.textContent = 'See more options if this may not be you'
-      more.appendChild(summary)
-      for (const candidate of cands.slice(1)) {
-        more.appendChild(searchResultRow(source, candidate, linksContainer))
-      }
-      results.appendChild(more)
+  for (const r of primary) {
+    results.appendChild(searchResultRow(r.source, r.candidate, linksContainer))
+  }
+  if (rest.length) {
+    const more = document.createElement('details')
+    more.className = 'search__more'
+    const summary = document.createElement('summary')
+    summary.className = 'search__more-summary'
+    summary.textContent = 'See more options if this may not be you'
+    more.appendChild(summary)
+    for (const r of rest) {
+      more.appendChild(searchResultRow(r.source, r.candidate, linksContainer))
     }
+    results.appendChild(more)
   }
   for (const note of notes) {
     const line = document.createElement('p')
