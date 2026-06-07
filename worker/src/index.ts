@@ -1005,7 +1005,7 @@ async function buildOpenalex(
   // enrichment lines (019) and the chart data (025), instead of re-fetching.
   const [oaGroups, countryGroups, venueGroups] = await Promise.all([
     openalexGroupBy(id, 'open_access.oa_status', env, headers),
-    openalexGroupBy(id, 'institutions.country_code', env, headers),
+    openalexGroupBy(id, 'authorships.institutions.country_code', env, headers),
     openalexGroupBy(id, 'primary_location.source.id', env, headers),
   ])
 
