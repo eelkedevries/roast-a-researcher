@@ -1,8 +1,14 @@
 // Detects which structured source an identifier/URL belongs to, and retrieves it
-// via the Worker's /retrieve path. Arbitrary URLs (Scholar, LinkedIn, personal
-// sites) are not supported — they return null and the UI advises pasting text.
+// via the Worker's /retrieve path. A URL on a host we do not recognise resolves to
+// the generic `website` source (the Worker fetches it and extracts readable text).
 
-export type SourceKind = 'orcid' | 'openalex' | 'github' | 'semanticscholar' | 'dblp'
+export type SourceKind =
+  | 'orcid'
+  | 'openalex'
+  | 'github'
+  | 'semanticscholar'
+  | 'dblp'
+  | 'website'
 
 export function detectSource(input: string): { source: SourceKind; id: string } | null {
   const s = input.trim()
@@ -32,7 +38,8 @@ export function detectSource(input: string): { source: SourceKind; id: string } 
         const m = url.pathname.match(/\/pid\/([^?#]+?)(?:\.\w+)?$/)
         return m ? { source: 'dblp', id: m[1] } : null
       }
-      return null // a URL we do not support
+      // Any other http(s) host: fetch and extract text as a generic website.
+      return { source: 'website', id: s }
     } catch {
       return null
     }

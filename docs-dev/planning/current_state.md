@@ -93,8 +93,13 @@ This file records what *is* (current reality). The binding design canon is `docs
   "+ Add link") validates each link on Roast via the Worker's `/retrieve` —
   tick/cross + reason — and merges retrieved text into the roast. A "search by
   name" box (`017`) queries `/search` and lets the user pick a candidate, which
-  pre-fills a link row. Unsupported URLs (Scholar/LinkedIn/etc.) fail with
-  guidance to paste.
+  pre-fills a link row. **Any non-structured http(s) URL now resolves to the
+  `website` source** (`036`): the Worker fetches it and flattens the HTML to
+  readable text, guarded by http(s)-only / 8s timeout / size cap / HTML
+  content-type / blocked-host (SSRF) checks. Reverses the earlier no-scraping
+  stance (spec v1.21). Static personal/university pages work well; JS-rendered or
+  login-walled sites (LinkedIn, Scholar) often return little and fail with a
+  "paste instead" reason.
 - **OpenAlex now needs a free API key** (usage-based pricing, re-verified
   2026-06-07: anonymous = $0 budget → HTTP 429; free key = $1/day, single-ID
   lookups $0). Set `OPENALEX_API_KEY` (Cloudflare secret) for all OpenAlex

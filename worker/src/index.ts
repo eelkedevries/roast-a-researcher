@@ -374,6 +374,9 @@ async function handleRetrieve(
     case 'dblp':
       res = await retrieveDblp(id, allowOrigin)
       break
+    case 'website':
+      res = await retrieveWebsite(id, env, allowOrigin)
+      break
     default:
       return jsonError('bad_source', 'That source is not available yet.', 400, allowOrigin)
   }
@@ -393,6 +396,146 @@ async function handleRetrieve(
     })
   }
   return res
+}
+
+// --- Website / arbitrary URL retrieval ---
+//
+// A user can supply any web address (personal site, university or lab profile).
+// The Worker fetches it and extracts readable text. Retrieval still goes through
+// the Worker, never the browser. Guards below keep this from being used to probe
+// internal/loopback/metadata addresses (SSRF) and cap cost.
+
+// Reject hosts that should never be fetched: localhost, internal TLDs, and
+// private/loopback/link-local/CGNAT/metadata IP literals.
+function isBlockedHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '')
+  if (h === 'localhost' || h.endsWith('.localhost')) return true
+  if (h.endsWith('.local') || h.endsWith('.internal') || h.endsWith('.lan')) return true
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (m) {
+    const a = Number(m[1])
+    const b = Number(m[2])
+    if (a === 0 || a === 127 || a === 10) return true
+    if (a === 169 && b === 254) return true // link-local incl. cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+  }
+  if (h === '::1') return true
+  if (/^(fc|fd|fe80)/i.test(h)) return true // IPv6 unique-local / link-local
+  return false
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_, d) => {
+      try {
+        return String.fromCodePoint(Number(d))
+      } catch {
+        return ''
+      }
+    })
+}
+
+// Flatten HTML to readable text with string ops (the Worker has no DOM parser).
+function htmlToText(html: string): { title: string; text: string } {
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+  const title = titleMatch ? decodeEntities(titleMatch[1]).replace(/\s+/g, ' ').trim() : ''
+  let body = html
+    // Drop non-content blocks (and their contents) entirely.
+    .replace(/<(script|style|noscript|template|svg)\b[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    // Block-level closes and <br> become line breaks so structure survives.
+    .replace(/<\/(p|div|li|tr|h[1-6]|section|article|header|footer)\s*>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Strip all remaining tags.
+    .replace(/<[^>]+>/g, ' ')
+  body = decodeEntities(body)
+    .replace(/[ \t\f\v\r]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return { title, text: body }
+}
+
+async function retrieveWebsite(
+  input: string,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
+  let url: URL
+  try {
+    url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`)
+  } catch {
+    return jsonError('invalid_identifier', 'That is not a valid web address.', 400, allowOrigin)
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return jsonError('invalid_identifier', 'Only http(s) web addresses are supported.', 400, allowOrigin)
+  }
+  if (isBlockedHost(url.hostname)) {
+    return jsonError('invalid_identifier', 'That address cannot be fetched.', 400, allowOrigin)
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8000)
+  let res: Response
+  try {
+    res = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': 'roast-a-researcher (+https://github.com/eelkedevries/roast-a-researcher)',
+        Accept: 'text/html,application/xhtml+xml,text/plain',
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    })
+  } catch {
+    clearTimeout(timer)
+    return jsonError('source_error', 'Could not reach that website (it may be slow or blocking requests).', 502, allowOrigin)
+  }
+  clearTimeout(timer)
+
+  if (!res.ok) {
+    return jsonError('source_error', `That website returned an error (${res.status}).`, 502, allowOrigin)
+  }
+  const ctype = res.headers.get('Content-Type') ?? ''
+  if (!/text\/html|application\/xhtml|text\/plain/i.test(ctype)) {
+    return jsonError('unsupported', 'That link is not a readable web page (HTML expected). Paste the text instead.', 415, allowOrigin)
+  }
+  const declared = Number(res.headers.get('Content-Length') ?? '0')
+  if (declared && declared > 5_000_000) {
+    return jsonError('too_large', 'That page is too large to fetch. Paste the relevant text instead.', 413, allowOrigin)
+  }
+
+  let html: string
+  try {
+    html = await res.text()
+  } catch {
+    return jsonError('source_error', 'Could not read that website.', 502, allowOrigin)
+  }
+
+  const { title, text } = htmlToText(html)
+  const maxChars = Number(env.MAX_INPUT_CHARS) || 12000
+  const trimmed = text.slice(0, Math.min(maxChars, 8000))
+  if (trimmed.replace(/\s/g, '').length < 40) {
+    return jsonError(
+      'not_found',
+      'No readable text found on that page (it may be image-only or rendered by JavaScript). Paste the text instead.',
+      404,
+      allowOrigin,
+    )
+  }
+
+  const out = [`Website: ${title || url.hostname} (${url.toString()})`, '', trimmed].join('\n')
+  return new Response(JSON.stringify({ text: out }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
+  })
 }
 
 function parseGithubUsername(input: string): string | null {

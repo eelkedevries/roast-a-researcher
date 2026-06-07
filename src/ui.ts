@@ -21,6 +21,7 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
   openalex: 'OpenAlex',
   semanticscholar: 'Semantic Scholar',
   dblp: 'DBLP',
+  website: 'Website',
 }
 const SEARCH_SOURCES: readonly SourceKind[] = [
   'github',
@@ -30,7 +31,7 @@ const SEARCH_SOURCES: readonly SourceKind[] = [
   'dblp',
 ]
 const UNSUPPORTED_LINK =
-  'Not a supported link (ORCID, OpenAlex, GitHub, Semantic Scholar, DBLP). Paste the text instead.'
+  'That does not look like a web address. Enter a full link (https://…) or paste the text instead.'
 
 // Canonical public-record URL for a detected source (for the "View record" link).
 function recordUrl(detected: { source: SourceKind; id: string }): string {
@@ -47,6 +48,8 @@ function recordUrl(detected: { source: SourceKind; id: string }): string {
       return `https://dblp.org/pid/${id}.html`
     case 'semanticscholar':
       return `https://www.semanticscholar.org/author/${id}`
+    case 'website':
+      return /^https?:\/\//i.test(id) ? id : `https://${id}`
   }
 }
 
@@ -80,7 +83,7 @@ export function mountApp(root: HTMLElement): void {
             <summary class="manual__summary"><span class="manual__chevron" aria-hidden="true">›</span> Or add a link or paste text manually</summary>
             <div class="manual__body">
               <div class="manual__group">
-                <span class="micro-label">Profile links <span class="micro-label__sub">ORCID · OpenAlex · GitHub · Semantic Scholar · DBLP</span></span>
+                <span class="micro-label">Profile links <span class="micro-label__sub">ORCID · OpenAlex · GitHub · Semantic Scholar · DBLP · any website</span></span>
                 <div id="links"></div>
                 <button class="chip" id="add-link" type="button"><span class="chip__icon" aria-hidden="true">+</span> Add link</button>
               </div>
@@ -425,7 +428,7 @@ function addLinkRow(container: HTMLElement, value = ''): HTMLElement {
   row.className = 'link-row'
   row.innerHTML =
     '<div class="link-row__top">' +
-    '<input class="input link-row__input" type="url" placeholder="ORCID iD, or an orcid.org / openalex.org / github.com link" />' +
+    '<input class="input link-row__input" type="url" placeholder="ORCID iD, a profile link, or any website URL" />' +
     '<button class="link-row__remove" type="button" aria-label="Remove link">×</button></div>' +
     '<div class="link-row__meta" hidden>' +
     '<span class="link-row__tag"></span>' +

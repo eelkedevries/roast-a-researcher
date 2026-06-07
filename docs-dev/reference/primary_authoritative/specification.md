@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.20 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.21 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -45,9 +45,12 @@ The next phase (now scheduled — see Appendix A) adds **structured-source
 retrieval**. The user may supply ORCID, OpenAlex, or GitHub identifiers (or their
 URLs) in a multi-input panel alongside file upload; the Worker retrieves each via
 that source's API, anchored on a stable identifier, and the result is merged into
-the editable roast input. This never extends to arbitrary URL scraping — Google
-Scholar, LinkedIn, and personal sites remain paste/upload only. User-supplied
-keys, accounts, persistence, hosted roast pages, and analytics stay out of scope.
+the editable roast input. The user may also supply an **arbitrary website URL**
+(personal site, university or lab profile): the Worker fetches it server-side and
+extracts the readable text. This works best on static pages; JavaScript-rendered
+or login-walled sites (e.g. LinkedIn, Google Scholar) often yield little and may
+need pasting instead. User-supplied keys, accounts, persistence, hosted roast
+pages, and analytics stay out of scope.
 
 Target environment: a static site served from `https://<owner>.github.io` and a
 Worker on a Cloudflare account. Development is on Linux.
@@ -471,7 +474,10 @@ residency should be avoided for this use). The deployed page is marked `noindex`
 and kept off any professional-domain index path, so a roast is not mistaken for a
 sincere profile by a search engine or casual visitor. `noindex` constrains only
 the hosted page; downloaded images are outside the tool's control once saved,
-which is one reason the content rules are enforced at generation time.
+which is one reason the content rules are enforced at generation time. Text
+fetched from a user-supplied website is third-party public web content; it is
+treated like any other supplied input (reviewed before roasting, never stored
+beyond the short public-record cache).
 
 ### Source inputs and validation
 
@@ -486,8 +492,15 @@ and extracts each uploaded file client-side. Each input is then marked — a tic
 when data was retrieved, or a cross plus a brief reason (invalid identifier,
 unsupported URL, nothing found, source error) shown in small print beneath it.
 Retrieved and extracted text is merged into the editable roast input for review
-before generation. Retrieval is identifier-anchored and goes through the Worker;
-arbitrary URL scraping is not supported.
+before generation. Retrieval always goes through the Worker, never the browser.
+Identifiers/URLs on known structured hosts resolve to their source API; **any
+other http(s) URL resolves to the generic `website` source**, which the Worker
+fetches and reduces to readable text (title plus body, with scripts/styles
+stripped). Website retrieval is guarded: http(s) only, an ~8s timeout, a body-size
+cap, an HTML content-type check, and a refusal to fetch localhost or
+private/loopback/link-local/metadata addresses (SSRF protection). Pages that are
+image-only or rendered entirely by JavaScript return a clear "no readable text"
+reason and the user pastes instead.
 
 A user who does not have an exact identifier may instead search by name: the front
 end sends `{ source, query }` to the Worker's `/search` path for **every supported
@@ -497,13 +510,14 @@ candidate fixes its concrete source id, which is then validated and retrieved li
 any other input. This stays identifier-anchored — search resolves to a stable id,
 never free-text scraping — and never ranks beyond each source API's own order.
 Sources without an open author/user search API (Google Scholar, LinkedIn,
-personal sites) are deliberately excluded from search and remain paste/upload
-only, consistent with the locked no-scraping decision.
+personal sites) are excluded from **name search** (there is no id to resolve to),
+but their pages can still be added directly as a `website` URL or pasted.
 
 ### Later data sources (next phase)
 
-Automated retrieval goes through the Worker, never the browser, and never by
-scraping:
+Automated retrieval goes through the Worker, never the browser. Structured sources
+use their APIs (below); a generic website URL is fetched and text-extracted by the
+Worker under the guards described in Source inputs and validation:
 
 - **ORCID** — the public API (`pub.orcid.org`) returns a researcher's
   self-curated record (employment, education, bio, work titles) from an iD. As
@@ -545,6 +559,13 @@ scraping:
 - **GitHub** — the public REST API (profile, repos, languages) is CORS-enabled
   and usable, with a 60-requests/hour unauthenticated limit per IP; useful for
   technically active researchers.
+- **Website (any URL)** — for a host with no structured source, the Worker fetches
+  the page server-side and flattens the HTML to readable text (title + body,
+  scripts/styles/comments removed; done with string ops, as the Worker has no DOM
+  parser). Guarded by the http(s)-only / timeout / size-cap / content-type /
+  blocked-host (SSRF) rules above. No identity anchor and no metrics — it is raw
+  page text — so it suits self-curated profile and personal/university pages; the
+  user reviews the merged text before roasting.
 - **Crossref** — works by DOI or author, used as enrichment once an identifier or
   DOI list exists; called from the Worker with a contact `mailto`.
 - **Semantic Scholar** — the free, keyless Graph API. Used two ways: (a) `/paper/batch`
