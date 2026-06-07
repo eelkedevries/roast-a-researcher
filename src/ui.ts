@@ -700,13 +700,22 @@ function dedupeRecords<T extends { text: string }>(items: T[]): T[] {
   return out
 }
 
-// Retrieve every link row authoritatively (cached) and collect its text/stats/
-// charts, updating each row's inline status; de-duplicate overlapping records.
+// The OpenAlex author id a link row points at (for skipping a redundant fetch).
+function openalexIdOf(detected: { source: SourceKind; id: string }): string | null {
+  if (detected.source !== 'openalex') return null
+  return detected.id.match(/A\d+/i)?.[0]?.toUpperCase() ?? null
+}
+
+// Retrieve every link row, updating its inline status. Non-OpenAlex sources are
+// fetched first (ORCID auto-embeds OpenAlex); a standalone OpenAlex is then fetched
+// only if that author wasn't already covered — so the same record is never fetched
+// twice. Returns the de-duplicated text/stats/charts for the roast.
 async function validateLinks(
   root: HTMLElement,
   sources: Set<string>,
 ): Promise<{ texts: string[]; stats: SourceStats[]; charts: ChartData[] }> {
-  const collected: Array<{ text: string; stats?: SourceStats; charts?: ChartData }> = []
+  type Entry = { retrieve: HTMLElement; detected: { source: SourceKind; id: string } }
+  const entries: Entry[] = []
   for (const row of Array.from(root.querySelectorAll<HTMLElement>('.link-row'))) {
     const input = row.querySelector<HTMLInputElement>('.link-row__input')
     const meta = row.querySelector<HTMLElement>('.link-row__meta')
@@ -734,6 +743,27 @@ async function validateLinks(
     tag.textContent = SOURCE_LABELS[detected.source]
     inspect.href = recordUrl(detected)
     meta.hidden = false
+    row.dataset.retrieved = value
+    entries.push({ retrieve, detected })
+  }
+
+  // OpenAlex rows last, so an ORCID's embedded OpenAlex can cover them.
+  entries.sort(
+    (a, b) =>
+      (a.detected.source === 'openalex' ? 1 : 0) - (b.detected.source === 'openalex' ? 1 : 0),
+  )
+
+  const collected: Array<{ text: string; stats?: SourceStats; charts?: ChartData }> = []
+  const coveredOpenAlex = new Set<string>()
+  for (const { retrieve, detected } of entries) {
+    const aId = openalexIdOf(detected)
+    if (aId && coveredOpenAlex.has(aId)) {
+      retrieve.className = 'link-row__retrieve is-ok'
+      retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
+      retrieve.title = 'Already included via the ORCID record'
+      sources.add(SOURCE_LABELS[detected.source])
+      continue
+    }
     retrieve.className = 'link-row__retrieve is-loading'
     retrieve.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
     const res = await retrieveSource(config.workerUrl, detected.source, detected.id)
@@ -741,9 +771,10 @@ async function validateLinks(
       retrieve.className = 'link-row__retrieve is-ok'
       retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
       retrieve.title = ''
-      row.dataset.retrieved = value
       collected.push({ text: res.text, stats: res.stats, charts: res.charts })
       sources.add(SOURCE_LABELS[detected.source])
+      const k = openalexKeyOf(res.text)
+      if (k) coveredOpenAlex.add(k)
     } else {
       retrieve.className = 'link-row__retrieve is-bad'
       retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
@@ -1064,35 +1095,51 @@ async function exportRetrievedData(
         value: string
         detected: { source: SourceKind; id: string } | null
         result: RetrieveResult | null
+        skipped: boolean
       }
-      const rows: Row[] = []
-      for (const value of inputs) {
-        const detected = detectSource(value)
-        const result = detected
-          ? await retrieveSource(config.workerUrl, detected.source, detected.id, true)
-          : null
-        rows.push({ value, detected, result })
+      const rows: Row[] = inputs.map((value) => ({
+        value,
+        detected: detectSource(value),
+        result: null,
+        skipped: false,
+      }))
+      // Fetch non-OpenAlex first; fetch a standalone OpenAlex only if not already
+      // covered by an ORCID's embedded record — so it isn't retrieved twice.
+      const order = rows
+        .map((_, i) => i)
+        .sort(
+          (a, b) =>
+            (rows[a].detected?.source === 'openalex' ? 1 : 0) -
+            (rows[b].detected?.source === 'openalex' ? 1 : 0),
+        )
+      const covered = new Set<string>()
+      for (const i of order) {
+        const r = rows[i]
+        if (!r.detected) continue
+        const aId = openalexIdOf(r.detected)
+        if (aId && covered.has(aId)) {
+          r.skipped = true
+          continue
+        }
+        r.result = await retrieveSource(config.workerUrl, r.detected.source, r.detected.id, true)
+        if (r.result.ok && r.result.text) {
+          const k = openalexKeyOf(r.result.text)
+          if (k) covered.add(k)
+        }
       }
-      // Same de-duplication as the roast: omit a record already contained in another.
-      const okRows = rows.filter((r) => r.result?.ok && r.result.text)
-      const kept = new Set(
-        dedupeRecords(okRows.map((r) => ({ text: r.result?.text ?? '', row: r }))).map(
-          (x) => x.row,
-        ),
-      )
       for (const r of rows) {
         if (!r.detected) {
           parts.push(`## ${r.value}`, '', '_Not a supported link._', '')
           continue
         }
         parts.push(`## ${r.detected.source} — ${r.detected.id}`, '')
+        if (r.skipped) {
+          parts.push('_Already included via the ORCID record above — not fetched again._', '')
+          continue
+        }
         const result = r.result
         if (!result || !result.ok || !result.text) {
           parts.push(`_Retrieval failed: ${result?.reason ?? 'unknown error'}._`, '')
-          continue
-        }
-        if (!kept.has(r)) {
-          parts.push('_Same record as another selected source above — omitted to avoid duplication._', '')
           continue
         }
         parts.push('### Retrieved text (fed to the roast)', '', '```\n' + result.text + '\n```', '')
