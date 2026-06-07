@@ -33,8 +33,9 @@ This file records what *is* (current reality). The binding design canon is `docs
   DBLP publications); the FE `mergePapers` de-dupes by DOI/normalised title, keeps
   the max citations, and renders the combined list (overriding model papers when
   any structured papers exist). Default
-  model is `google/gemini-2.5-flash`; the roast targets ~400 words, so
-  `MAX_OUTPUT_TOKENS` is 1500.
+  model is `google/gemini-2.5-flash`; the roast length is **dynamic** — it scales
+  with how much genuinely funny, on-target material there is (a few sentences up to
+  ~600 words), never padded — so `MAX_OUTPUT_TOKENS` is 1500.
   Also: **"Try a sample"** (zero-cost canned demo, `src/demo.ts`, no model call),
   **"Download data"** (`.md` export) beside **Roast me**, and a segmented intensity
   control (default `spicy`). Warm-palette CSS + Plus Jakarta Sans / Space Mono in

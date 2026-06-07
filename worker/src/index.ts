@@ -117,7 +117,7 @@ function buildSystemPrompt(intensity: Intensity): string {
     '- Roast only what is present in the supplied text. Do not pad a thin profile with invented detail or generic academic filler, and do not demand more input; a short profile yields a short roast.',
     '- Target the work and/or the persona — publications, venues, methods, jargon, grant-chasing, self-branding, the gap between presentation and record — whatever is funniest.',
     '- When the profile includes grants/funding or awards/honours, explicitly bring them into the roast — name and mock the actual grants and awards — rather than leaving them only in the structured fields.',
-    '- Write in British English. Aim for roughly 400 words (a few tight paragraphs) when the material supports it, and keep it punchy throughout — never pad: a thin profile still yields a shorter roast rather than filler.',
+    '- Write in British English. Let the length follow the material: write only as much as there is genuinely funny, on-target material to justify, and no more. Little to work with → a short, sharp roast of a few sentences; a rich profile full of strong targets → a longer one of several paragraphs (up to ~600 words). Quality over quantity — every line must land; never pad to reach a length, and cut anything that is not funny.',
     '',
     `Intensity: ${intensity}. ${intensityDirective(intensity)}`,
     '',
