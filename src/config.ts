@@ -19,20 +19,16 @@ export const config: AppConfig = {
   workerUrl: 'https://roast-a-researcher.eelkedevries.workers.dev',
   defaultModel: 'google/gemini-2.5-flash',
   maxInputChars: 40000,
-  defaultIntensity: 7,
+  defaultIntensity: 3,
   orcidLoginEnabled: true,
 }
 
-export const MIN_INTENSITY = 1
-export const MAX_INTENSITY = 10
-// Short labels shown beside the intensity slider at a given value.
-export function intensityLabelFor(level: number): string {
-  if (level <= 2) return 'very gentle'
-  if (level <= 4) return 'light'
-  if (level <= 6) return 'sharp'
-  if (level <= 8) return 'cutting'
-  return 'savage'
-}
+// The three intensity levels (value sent to the Worker + the button label).
+export const intensityLevels: ReadonlyArray<{ value: number; label: string }> = [
+  { value: 1, label: 'Keep it factual' },
+  { value: 2, label: 'Don’t hold back' },
+  { value: 3, label: 'Show no mercy' },
+]
 
 // User-facing copy. British English throughout. Kept here so wording is adjusted
 // in one place. The error strings are fixed, in-character messages used from the
@@ -47,8 +43,8 @@ export const copy = {
   inputPlaceholder: 'Paste your bio, publications, grants, or CV text here…',
   intensityLabel: 'Intensity',
   intensityHint:
-    'Slide to set how hard the roast hits — gentle on the left, savage on the ' +
-    'right. You can adjust it and re-roast after seeing the result.',
+    'Choose how hard the roast hits. You can change it and re-roast after seeing ' +
+    'the result.',
   roastButton: 'Roast me',
   outputPlaceholder: 'Your roast will appear here.',
   privacyNotice:

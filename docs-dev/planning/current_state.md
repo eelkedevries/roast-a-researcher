@@ -42,10 +42,10 @@ This file records what *is* (current reality). The binding design canon is `docs
   with how much genuinely funny, on-target material there is (a few sentences up to
   ~600 words), never padded — so `MAX_OUTPUT_TOKENS` is 1500.
   Also: **"Try a sample"** (zero-cost canned demo, `src/demo.ts`, no model call),
-  **"Download data"** (`.md` export) beside **Roast me**, and a **1–10 intensity
-  scaler** (default `7`, replacing the old three levels) shown both before and,
-  after a roast, in a post-roast panel (adjust intensity + re-roast, and "Inspect
-  papers used"). Warm-palette CSS + Plus Jakarta Sans / Space Mono in
+  **"Download data"** (`.md` export) beside **Roast me**, and a **3-level intensity
+  control** (Keep it factual / Don’t hold back / Show no mercy; default the
+  strongest) shown both before and, after a roast, in a post-roast panel (change
+  intensity + re-roast, and "Inspect papers used"). Warm-palette CSS + Plus Jakarta Sans / Space Mono in
   `src/style.css`; fonts via `@import`. The roast POSTs `{ profile, intensity,
   model }` to `WORKER_URL` and streams SSE, or shows an in-character error.
 - **Worker proxy** (`worker/`) — Cloudflare Worker proxying a **streaming** roast

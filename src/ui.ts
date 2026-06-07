@@ -1,4 +1,4 @@
-import { config, copy, MIN_INTENSITY, MAX_INTENSITY, intensityLabelFor } from './config'
+import { config, copy, intensityLevels } from './config'
 import { extractText, ocrPdf, UnsupportedFileError, ScannedPdfError } from './extract'
 import { demoResearcher } from './demo'
 import { copyText, downloadText, downloadImage } from './share'
@@ -56,6 +56,17 @@ function recordUrl(detected: { source: SourceKind; id: string }): string {
 
 // Builds the "Focused Console" shell and wires it to the real Worker pipeline.
 export function mountApp(root: HTMLElement): void {
+  const segGroup = (name: string): string =>
+    `<div class="segmented" role="radiogroup" aria-label="${copy.intensityLabel}">` +
+    intensityLevels
+      .map(
+        (lvl) =>
+          `<label><input type="radio" name="${name}" value="${lvl.value}"${
+            lvl.value === config.defaultIntensity ? ' checked' : ''
+          } /><span>${lvl.label}</span></label>`,
+      )
+      .join('') +
+    `</div>`
   root.innerHTML = `
     <main class="wrap">
       <header>
@@ -117,11 +128,8 @@ export function mountApp(root: HTMLElement): void {
           </div>
           <div class="action-row">
             <div class="action-row__intensity">
-              <div class="intensity-head">
-                <span class="micro-label">${copy.intensityLabel}</span>
-                <span class="intensity-val" id="intensity-input-val"></span>
-              </div>
-              <input type="range" class="intensity-range" id="intensity-input" min="${MIN_INTENSITY}" max="${MAX_INTENSITY}" step="1" aria-label="${copy.intensityLabel}" />
+              <span class="micro-label">${copy.intensityLabel}</span>
+              ${segGroup('intensity-in')}
             </div>
             <div class="action-row__go">
               <button class="btn btn--ghost" id="export-data" type="button">Download data</button>
@@ -156,11 +164,8 @@ export function mountApp(root: HTMLElement): void {
           <p class="runmeta hidden" id="runmeta"></p>
           <div class="reroast hidden" id="reroast">
             <div class="reroast__intensity">
-              <div class="intensity-head">
-                <span class="micro-label">${copy.intensityLabel}</span>
-                <span class="intensity-val" id="intensity-output-val"></span>
-              </div>
-              <input type="range" class="intensity-range" id="intensity-output" min="${MIN_INTENSITY}" max="${MAX_INTENSITY}" step="1" aria-label="${copy.intensityLabel}" />
+              <span class="micro-label">${copy.intensityLabel}</span>
+              ${segGroup('intensity-out')}
             </div>
             <div class="reroast__actions">
               <button class="btn btn--primary" id="reroast-btn" type="button">Re-roast</button>
@@ -268,24 +273,22 @@ export function mountApp(root: HTMLElement): void {
   // Re-roast from the Papers section after marking mis-attributed papers.
   $<HTMLButtonElement>('#papers-reroast').addEventListener('click', () => triggerRoast?.())
 
-  // Intensity scaler (1–10), shared between the input control and the post-roast
-  // control; either slider updates the shared value and both displays.
-  const intensitySliders: HTMLInputElement[] = []
-  const intensityLabels: HTMLElement[] = []
+  // Intensity (3 levels), shared between the input control and the post-roast
+  // control; picking a level in either updates the shared value and both controls.
+  const intensityRadios = Array.from(
+    root.querySelectorAll<HTMLInputElement>(
+      'input[name="intensity-in"], input[name="intensity-out"]',
+    ),
+  )
   const syncIntensity = (val: number): void => {
     currentIntensity = val
-    for (const s of intensitySliders) s.value = String(val)
-    for (const l of intensityLabels) l.textContent = `${val}/10 · ${intensityLabelFor(val)}`
+    for (const r of intensityRadios) r.checked = Number(r.value) === val
   }
-  const registerIntensity = (sliderSel: string, labelSel: string): void => {
-    const slider = $<HTMLInputElement>(sliderSel)
-    const label = $<HTMLElement>(labelSel)
-    intensitySliders.push(slider)
-    intensityLabels.push(label)
-    slider.addEventListener('input', () => syncIntensity(Number(slider.value)))
+  for (const r of intensityRadios) {
+    r.addEventListener('change', () => {
+      if (r.checked) syncIntensity(Number(r.value))
+    })
   }
-  registerIntensity('#intensity-input', '#intensity-input-val')
-  registerIntensity('#intensity-output', '#intensity-output-val')
   syncIntensity(currentIntensity)
 
   // Post-roast options: re-roast at the current intensity, or jump to the Papers

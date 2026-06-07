@@ -43,10 +43,10 @@ export interface Env {
   SESSION_SECRET?: string
 }
 
-// Intensity is a 1–10 scaler (replacing the old three discrete levels).
+// Intensity is one of three levels (1 = keep it factual … 3 = show no mercy).
 const MIN_INTENSITY = 1
-const MAX_INTENSITY = 10
-const DEFAULT_INTENSITY = 7
+const MAX_INTENSITY = 3
+const DEFAULT_INTENSITY = 3
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const MAX_OUTPUT_TOKENS = 1500
@@ -94,11 +94,13 @@ function jsonError(
 }
 
 function intensityDirective(intensity: number): string {
-  if (intensity <= 2) return 'Very gentle and affectionate — the lightest, warmest ribbing.'
-  if (intensity <= 4) return 'Light and good-natured — playful teasing, never harsh.'
-  if (intensity <= 6) return 'Sharp and witty, with real bite but not cruel.'
-  if (intensity <= 8) return 'Cutting and merciless within the rules — properly sharp.'
-  return 'Maximum savagery within the content rules — as brutal as the rules allow.'
+  if (intensity <= 1) {
+    return 'Keep it factual: dry, deadpan and understated — wry observations grounded strictly in the record, with the lightest comic touch and no exaggeration.'
+  }
+  if (intensity === 2) {
+    return "Don't hold back: sharp, witty and properly cutting, with real bite."
+  }
+  return 'Show no mercy: as brutal, savage and cutting as the content rules allow — go for the jugular within the rules.'
 }
 
 function buildSystemPrompt(intensity: number, exclude: string[] = []): string {
@@ -120,7 +122,7 @@ function buildSystemPrompt(intensity: number, exclude: string[] = []): string {
     '- Only make a joke if it genuinely lands. The presence of material (awards, grants, degrees, a long CV, many papers) is NEVER itself a reason to joke about it — far better to omit a topic entirely than to include a weak, obvious, or generic joke about it. If grants or awards (or anything else) offer a genuinely sharp angle, use them and name the real ones; if they do not, leave them out completely.',
     '- Write in British English. DEFAULT TO SHORT. Most profiles are unremarkable and deserve only a few cutting sentences (roughly 60–150 words). Only go longer when the material genuinely offers many distinct, strong jokes — and stop the instant the good material runs out (hard ceiling ~600 words). Length must be earned by quality material, never by padding, filler, or restating the same joke; when in doubt, cut. A tight short roast of only the best jokes always beats a longer one padded with mediocre ones.',
     '',
-    `Intensity: ${intensity}/10. ${intensityDirective(intensity)}`,
+    `Intensity (level ${intensity} of 3). ${intensityDirective(intensity)}`,
     '',
     'Output format — output these two parts in this exact order:',
     '1. FIRST a single valid JSON object and NOTHING before it — no preamble, no explanation, no markdown, no code fences. It must start with "{" as the very first character. Use double quotes, no trailing commas, no comments. Fields (use null, or [] for lists, only when the text genuinely gives nothing — otherwise fill every field you reasonably can, inferring researchDomain/researchFocus from titles, venues and bio where needed; never fabricate specific facts like employers, degrees, grants or citation counts):',
