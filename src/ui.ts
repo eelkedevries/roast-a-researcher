@@ -172,7 +172,7 @@ export function mountApp(root: HTMLElement): void {
 
   // ORCID login control (session-only). Read any token the Worker returned in the
   // URL fragment, then render the header control reflecting the current session.
-  consumeAuthFragment()
+  const { justLoggedIn } = consumeAuthFragment()
   const renderAuthControl = (): void => {
     const el = root.querySelector<HTMLElement>('#auth-control')
     if (!el) return
@@ -205,6 +205,14 @@ export function mountApp(root: HTMLElement): void {
     }
   }
   renderAuthControl()
+
+  // Straight after a fresh ORCID login, load the verified researcher's own
+  // profile — as if they had searched for and picked themselves — so their data
+  // is fed in immediately and a roast shows the verified badge.
+  if (justLoggedIn) {
+    const session = getSession()
+    if (session) loadVerifiedProfile(root, session, linksContainer)
+  }
 
   const setCounter = (): void => {
     const n = textarea.value.length
@@ -694,6 +702,33 @@ function searchResultRow(
     }
   })
   return row
+}
+
+// On a fresh ORCID login, surface the verified researcher's own profile as a
+// pre-ticked result, reusing the search-pick flow: ticking adds the link row and
+// retrieves it, so the data is fed in and a roast shows the verified badge.
+function loadVerifiedProfile(
+  root: HTMLElement,
+  session: { orcid: string; name: string | null },
+  linksContainer: HTMLElement,
+): void {
+  const results = root.querySelector<HTMLElement>('#search-results')
+  if (!results) return
+  const candidate: Candidate = {
+    id: session.orcid,
+    name: session.name ?? session.orcid,
+    affiliation: null,
+  }
+  const note = document.createElement('p')
+  note.className = 'search__note'
+  note.textContent = 'Loaded from your verified ORCID — press Roast me.'
+  const row = searchResultRow('orcid', candidate, linksContainer)
+  results.replaceChildren(note, row)
+  const checkbox = row.querySelector<HTMLInputElement>('.search__check')
+  if (checkbox) {
+    checkbox.checked = true
+    checkbox.dispatchEvent(new Event('change'))
+  }
 }
 
 // After Roast me / Download data, reduce the search results to just the ticked

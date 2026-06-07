@@ -61,13 +61,13 @@ export function getSession(): Session | null {
 // Read the result the Worker passed back in the URL fragment (#orcid_auth=… or
 // #orcid_auth_error=…), store any token, and clean the fragment from the address
 // bar. Returns an error code when the login failed.
-export function consumeAuthFragment(): { error: string | null } {
+export function consumeAuthFragment(): { error: string | null; justLoggedIn: boolean } {
   const hash = location.hash.startsWith('#') ? location.hash.slice(1) : location.hash
-  if (!hash) return { error: null }
+  if (!hash) return { error: null, justLoggedIn: false }
   const params = new URLSearchParams(hash)
   const token = params.get('orcid_auth')
   const error = params.get('orcid_auth_error')
-  if (!token && !error) return { error: null }
+  if (!token && !error) return { error: null, justLoggedIn: false }
   if (token) {
     try {
       localStorage.setItem(TOKEN_KEY, token)
@@ -77,7 +77,7 @@ export function consumeAuthFragment(): { error: string | null } {
   }
   // Strip the fragment so the token is not left in the address bar or history.
   history.replaceState(null, '', location.pathname + location.search)
-  return { error }
+  return { error, justLoggedIn: Boolean(token) }
 }
 
 // Canonical 19-character ORCID iD (uppercased final checksum), or null.
