@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.35 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
+**Version:** 1.36 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -126,6 +126,19 @@ The Worker is a thin, OpenAI-compatible proxy. On each request it, in order:
    not exposed to or controlled by the client;
 5. calls OpenRouter with `stream: true` and relays the SSE body straight back,
    without buffering.
+
+The system prompt and the generation parameters are not hardcoded in the Worker
+source. They live in two user-facing Markdown files bundled into the Worker as Text
+modules (`worker/wrangler.toml` `[[rules]]` `type = "Text"`): **`worker/prompt.md`**,
+the prompt template (with `{{INTENSITY}}` and `{{EXCLUDE}}` placeholders the Worker
+fills per request), and **`worker/model-config.md`**, a documented `json` block of
+the adjustable knobs — `maxOutputTokens`, optional `temperature` and `topP` (each
+`null` to leave the model's default, a number to override), and the `intensity`
+levels (each level's value, label and directive, plus the default). The allowed
+model(s) (`MODEL_ALLOWLIST`) and input cap (`MAX_INPUT_CHARS`) remain deployment
+configuration in `wrangler.toml`. Editing these files changes behaviour without
+touching code; both are bundled server-side, so the prompt is still never exposed
+to the browser.
 
 The streaming relay returns the upstream body directly
 (`new Response(upstream.body, { headers: { "Content-Type": "text/event-stream",

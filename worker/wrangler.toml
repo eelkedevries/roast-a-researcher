@@ -2,6 +2,14 @@ name = "roast-a-researcher"
 main = "src/index.ts"
 compatibility_date = "2026-06-05"
 
+# Bundle the user-facing Markdown config (prompt.md, model-config.md) as Text
+# modules, so src/index.ts can import them as strings. The prompt template and the
+# generation parameters live in those files, not in the code.
+[[rules]]
+type = "Text"
+globs = ["**/*.md"]
+fallthrough = true
+
 # Non-secret configuration (committed). Secrets (OPENROUTER_API_KEY) are set with
 # `wrangler secret put` for the deployed Worker, or in worker/.dev.vars
 # (git-ignored) for local `wrangler dev`.
