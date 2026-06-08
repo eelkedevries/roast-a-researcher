@@ -37,6 +37,9 @@ jobs:
       - name: Verify (project's verify command, if defined)
         run: npm run check --if-present
 
+      - name: Unit tests (generation helpers + eval harness)
+        run: npm test
+
       - name: Run public-build safety check
         run: bash scripts/check-public-build.sh dist
 

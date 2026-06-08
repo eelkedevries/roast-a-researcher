@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <meta name="color-scheme" content="dark" />
+    <title>Roast evaluation — blinded comparison</title>
+    <style>
+      :root { color-scheme: dark; --bg:#100e0c; --panel:#1a150f; --line:#38322a; --text:#f4efe6; --muted:#9c9488; --accent:#ff7a59; }
+      * { box-sizing: border-box; }
+      body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 system-ui, sans-serif; }
+      .wrap { max-width: 1000px; margin: 0 auto; padding: 24px; }
+      h1 { font-size: 20px; } h2 { font-size: 15px; color: var(--muted); font-weight: 600; }
+      .bar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+      button { font: inherit; background:var(--accent); color:#1a0d08; border:0; border-radius:8px; padding:9px 16px; cursor:pointer; font-weight:700; }
+      button.ghost { background:transparent; color:var(--text); border:1px solid var(--line); font-weight:600; }
+      button:disabled { opacity:.5; cursor:default; }
+      .cards { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+      .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }
+      .card .roast { white-space:pre-wrap; overflow-wrap:break-word; min-height:120px; }
+      .pill { display:inline-block; font:12px/1 monospace; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:4px 10px; }
+      .choices { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+      .progress { color:var(--muted); font:13px monospace; }
+      .dims { margin-top:14px; display:none; }
+      .dims.show { display:block; }
+      .dims label { display:inline-flex; gap:6px; align-items:center; margin:4px 10px 4px 0; font-size:13px; color:var(--muted); }
+      table { border-collapse:collapse; margin-top:12px; width:100%; }
+      th,td { text-align:left; padding:4px 12px 4px 0; border-bottom:1px solid var(--line); font-size:14px; }
+      .muted { color:var(--muted); }
+      .grid1 { display:grid; gap:16px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Roast evaluation — blinded comparison</h1>
+      <p class="muted">
+        Load a results file from <code>eval/run.mjs</code>. Model and condition labels
+        are hidden while you rate; left/right and order are randomised. Pick the funnier
+        roast (and optionally rate dimensions), then export CSV/JSON.
+      </p>
+      <div class="bar">
+        <input type="file" id="file" accept="application/json" />
+        <label class="muted"><input type="checkbox" id="dimsToggle" /> rate dimensions</label>
+        <span class="progress" id="progress"></span>
+      </div>
+      <div id="stage" class="grid1"></div>
+    </div>
+    <script>
+      const S = { run: null, phase: 'idle', best: {}, matchups: [], i: 0, judgements: [] }
+      const $ = (id) => document.getElementById(id)
+      const shuffle = (a) => { for (let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]] } return a }
+      const byId = (id) => S.run.results.find((r) => r.id === id)
+
+      $('file').addEventListener('change', async (e) => {
+        const f = e.target.files[0]; if (!f) return
+        S.run = JSON.parse(await f.text())
+        startBestPhase()
+      })
+
+      // Phase 1: for conditions with >1 candidate, human picks the funniest (best-of-N).
+      function startBestPhase() {
+        const groups = {}
+        for (const r of S.run.results.filter((r) => !r.error)) {
+          const k = r.profileId + '|' + r.conditionId
+          ;(groups[k] = groups[k] || []).push(r)
+        }
+        S.bestQueue = Object.values(groups).filter((g) => g.length > 1)
+        S.best = {} // key -> chosen result id; single-candidate groups handled in matchups
+        S.bi = 0
+        if (!S.bestQueue.length) return startPairwise()
+        S.phase = 'best'
+        renderBest()
+      }
+
+      function renderBest() {
+        if (S.bi >= S.bestQueue.length) return startPairwise()
+        const group = S.bestQueue[S.bi]
+        const items = shuffle(group.slice())
+        $('progress').textContent = `Best-of-N selection ${S.bi + 1}/${S.bestQueue.length}`
+        const cards = items
+          .map(
+            (r, n) =>
+              `<div class="card"><span class="pill">option ${n + 1}</span>
+               <div class="roast">${escapeHtml(r.roast)}</div>
+               <div class="choices"><button data-pick="${r.id}">Funniest</button></div></div>`,
+          )
+          .join('')
+        $('stage').innerHTML = `<h2>Which is funniest? (same profile, ${items.length} candidates)</h2><div class="cards">${cards}</div>`
+        $('stage').querySelectorAll('[data-pick]').forEach((b) =>
+          b.addEventListener('click', () => {
+            const key = group[0].profileId + '|' + group[0].conditionId
+            S.best[key] = b.getAttribute('data-pick')
+            S.bi++
+            renderBest()
+          }),
+        )
+      }
+
+      // Representative result id for a (profile, condition): the human-picked best, or
+      // the single candidate.
+      function repId(profileId, conditionId) {
+        const key = profileId + '|' + conditionId
+        if (S.best[key]) return S.best[key]
+        const r = S.run.results.find((r) => !r.error && r.profileId === profileId && r.conditionId === conditionId)
+        return r ? r.id : null
+      }
+
+      // Phase 2: per profile, baseline rep vs each other condition rep (pairwise).
+      function startPairwise() {
+        S.phase = 'pairwise'
+        const profileIds = [...new Set(S.run.results.map((r) => r.profileId))]
+        const condIds = [...new Set(S.run.results.map((r) => r.conditionId))]
+        const baseline = condIds.includes('baseline') ? 'baseline' : condIds[0]
+        const matchups = []
+        for (const pid of profileIds) {
+          const baseRep = repId(pid, baseline)
+          if (!baseRep) continue
+          for (const cid of condIds) {
+            if (cid === baseline) continue
+            const rep = repId(pid, cid)
+            if (!rep) continue
+            const sides = shuffle([baseRep, rep])
+            matchups.push({ profileId: pid, baseline, condition: cid, left: sides[0], right: sides[1] })
+          }
+        }
+        S.matchups = shuffle(matchups)
+        S.i = 0
+        S.judgements = []
+        renderPairwise()
+      }
+
+      function renderPairwise() {
+        if (S.i >= S.matchups.length) return renderDone()
+        const m = S.matchups[S.i]
+        const L = byId(m.left), R = byId(m.right)
+        $('progress').textContent = `Pairwise ${S.i + 1}/${S.matchups.length}`
+        const dims = $('dimsToggle').checked
+        $('stage').innerHTML =
+          `<h2>Which roast is funnier?</h2>
+           <div class="cards">
+             ${sideCard('A', L, dims)}
+             ${sideCard('B', R, dims)}
+           </div>
+           <div class="choices">
+             <button data-w="left">A funnier</button>
+             <button class="ghost" data-w="tie">Tie</button>
+             <button data-w="right">B funnier</button>
+           </div>`
+        $('stage').querySelectorAll('[data-w]').forEach((b) =>
+          b.addEventListener('click', () => recordPairwise(m, b.getAttribute('data-w'))),
+        )
+      }
+
+      function sideCard(tag, r, dims) {
+        const dimHtml = dims
+          ? `<div class="dims show">${['funniness','specificity','originality','grounding','harshness']
+              .map((d) => `<label>${d}<select data-dim="${tag}:${d}"><option value=""></option>${[1,2,3,4,5].map((n)=>`<option>${n}</option>`).join('')}</select></label>`)
+              .join('')}</div>`
+          : ''
+        return `<div class="card"><span class="pill">Roast ${tag}</span><div class="roast">${escapeHtml(r.roast)}</div>${dimHtml}</div>`
+      }
+
+      function recordPairwise(m, winner) {
+        const dim = (sideTag) => {
+          const out = {}
+          $('stage').querySelectorAll(`[data-dim^="${sideTag}:"]`).forEach((s) => {
+            const d = s.getAttribute('data-dim').split(':')[1]
+            if (s.value) out[d] = Number(s.value)
+          })
+          return out
+        }
+        // Map A/B (left/right) winner back to baseline vs condition.
+        const winnerSide = winner === 'tie' ? 'tie' : winner === 'left' ? m.left : m.right
+        const winnerCondition =
+          winner === 'tie' ? 'tie' : byId(winnerSide).conditionId
+        S.judgements.push({
+          profileId: m.profileId,
+          baseline: m.baseline,
+          condition: m.condition,
+          leftId: m.left,
+          rightId: m.right,
+          leftCondition: byId(m.left).conditionId,
+          rightCondition: byId(m.right).conditionId,
+          winner, // left | right | tie
+          winnerCondition,
+          dimsA: dim('A'),
+          dimsB: dim('B'),
+        })
+        S.i++
+        renderPairwise()
+      }
+
+      function renderDone() {
+        $('progress').textContent = `Done — ${S.judgements.length} judgements`
+        // Preference tally: condition vs baseline.
+        const tally = {}
+        for (const j of S.judgements) {
+          const t = (tally[j.condition] = tally[j.condition] || { wins: 0, losses: 0, ties: 0, n: 0 })
+          t.n++
+          if (j.winnerCondition === 'tie') t.ties++
+          else if (j.winnerCondition === j.condition) t.wins++
+          else t.losses++
+        }
+        const rows = Object.entries(tally)
+          .map(
+            ([cid, t]) =>
+              `<tr><td>${cid} vs ${S.judgements[0] ? S.judgements[0].baseline : 'baseline'}</td><td>${t.wins}</td><td>${t.losses}</td><td>${t.ties}</td><td>${t.n ? Math.round((100 * t.wins) / t.n) : 0}%</td></tr>`,
+          )
+          .join('')
+        $('stage').innerHTML =
+          `<h2>Results (small pilot — proportions only, no statistical claim)</h2>
+           <table><thead><tr><th>Matchup</th><th>Wins</th><th>Losses</th><th>Ties</th><th>Win rate</th></tr></thead><tbody>${rows}</tbody></table>
+           <div class="choices"><button data-exp="json">Export JSON</button><button class="ghost" data-exp="csv">Export CSV</button><button class="ghost" data-restart>Restart</button></div>`
+        $('stage').querySelector('[data-restart]').addEventListener('click', startBestPhase)
+        $('stage').querySelectorAll('[data-exp]').forEach((b) =>
+          b.addEventListener('click', () => exportData(b.getAttribute('data-exp'))),
+        )
+      }
+
+      function exportData(kind) {
+        const meta = { runId: S.run.runId, ratedAt: new Date().toISOString(), best: S.best }
+        if (kind === 'json') {
+          download(`ratings-${S.run.runId}.json`, JSON.stringify({ meta, judgements: S.judgements }, null, 2), 'application/json')
+          return
+        }
+        const cols = ['profileId', 'baseline', 'condition', 'winner', 'winnerCondition', 'leftCondition', 'rightCondition']
+        const lines = [cols.join(',')]
+        for (const j of S.judgements) lines.push(cols.map((c) => csv(j[c])).join(','))
+        download(`ratings-${S.run.runId}.csv`, lines.join('\n'), 'text/csv')
+      }
+
+      const csv = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s }
+      function download(name, content, type) {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(new Blob([content], { type }))
+        a.download = name; a.click(); URL.revokeObjectURL(a.href)
+      }
+      function escapeHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) }
+    </script>
+  </body>
+</html>

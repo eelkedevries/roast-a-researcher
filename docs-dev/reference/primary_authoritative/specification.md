@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.38 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
+**Version:** 1.39 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -136,15 +136,30 @@ Its YAML frontmatter holds the adjustable knobs — `model` (the OpenRouter slug
 Worker calls), `maxOutputTokens`, optional `temperature` and `topP` (a number, or
 `default` to leave the model's own), `defaultIntensity`, and the `intensity` list
 (each level's `label` and `directive`, numbered by order) — and the prose body below
-the frontmatter is the prompt template (with `{{INTENSITY}}` and `{{EXCLUDE}}`
-placeholders the Worker fills per request). The Worker splits the file and parses the
-frontmatter with the `yaml` library at startup; `scripts/check-config.mjs` validates
-the same file in `npm run check` and in the deploy workflow, so a malformed edit fails
-before it ships. The input cap (`MAX_INPUT_CHARS`) and rate limit remain deployment
-configuration in `wrangler.toml`. Editing `roast.md` changes the model, parameters and
-behaviour without touching code; it is bundled server-side, so the prompt is never
-exposed to the browser, and because the model is fixed there the client cannot steer
-the Worker onto another model.
+the frontmatter is the prompt template (with `{{INTENSITY}}`, `{{FORMAT}}`,
+`{{EXEMPLAR}}` and `{{EXCLUDE}}` placeholders the Worker fills per request). The
+frontmatter also holds optional **humour controls** — `models` (named buckets:
+`lowCost`/`quality`/`experimental`, each defaulting to `model`), `routing`
+(per-intensity bucket, plus `regenerate` and `fallback`), comedic-format presets
+(`formats` + `defaultFormat`), and experimental few-shot `exemplars`. All default to
+"off" (every bucket the base model, the `straight` format, exemplars disabled), so the
+shipped config reproduces the original single-model, plain-roast behaviour and cost;
+the humour features are opt-in. The shared, pure helpers in `worker/src/generation.mjs`
+(model routing, format/exemplar selection, prompt assembly) are used by the Worker, by
+the evaluation harness, and by the unit tests (`npm test`). The Worker splits the file
+and parses the frontmatter with the `yaml` library at startup; `scripts/check-config.mjs`
+validates it in `npm run check` and in the deploy workflow, so a malformed edit fails
+before it ships. On a model error the Worker retries once with the `fallback` bucket.
+The input cap (`MAX_INPUT_CHARS`) and rate limit remain deployment configuration in
+`wrangler.toml`. Editing `roast.md` changes the model, parameters and behaviour without
+touching code; it is bundled server-side, so the prompt is never exposed to the
+browser, and the client only sends an intensity and a `format` key — never a model
+slug — so it cannot steer the Worker onto another model.
+
+Humour quality is decided empirically, not asserted: the local `eval/` harness
+generates multi-candidate roasts across conditions (model, format, exemplar,
+best-of-N) on synthetic profiles and supports blinded human pairwise comparison
+(`eval/compare.html`) — never an LLM judge for funniness. See `docs/evaluation.md`.
 
 The streaming relay returns the upstream body directly
 (`new Response(upstream.body, { headers: { "Content-Type": "text/event-stream",
@@ -278,11 +293,15 @@ Two classes of failure are presented differently:
 {
   "profile": "<pasted or extracted profile text>",
   "intensity": "<1 | 2 | 3 — the three intensity levels>",
+  "format": "<optional string: a comedic-format key from roast.md; default 'straight'>",
+  "regenerate": "<optional bool: true on a re-roast, for regenerate model routing>",
   "exclude": "<optional string[]: titles the user marked as mis-attributed>"
 }
 ```
 
-The request does not carry a model: the Worker uses the `model` fixed in `roast.md`.
+The request does not carry a model: the Worker selects the model from `roast.md`
+routing (per-intensity / regenerate). An unknown `format` resolves to the straight
+roast; the client cannot supply a model slug.
 
 `profile` is always text; uploaded files are converted to text in the browser
 before sending. `intensity` is one of three levels — `1` (Keep it factual), `2`

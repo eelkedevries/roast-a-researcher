@@ -18,6 +18,9 @@ build/
 coverage/
 .wrangler/
 
+# evaluation run outputs (generated; can be large)
+eval/results/
+
 # temporary internal material
 docs-dev/tmp/
 docs-dev/private/

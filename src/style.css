@@ -161,7 +161,14 @@ textarea.field__text::placeholder { color: var(--faint); }
 /* Settings + action row */
 .action-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
 .action-row__intensity { display: flex; flex-direction: column; }
+.action-row__format { display: flex; flex-direction: column; }
 .action-row__go { display: flex; align-items: center; gap: 10px; }
+.select {
+  background: var(--inset); color: var(--text); border: 1px solid var(--line-2);
+  border-radius: 8px; padding: 9px 12px; font-family: var(--mono); font-size: 11.5px;
+  letter-spacing: .04em; cursor: pointer;
+}
+.select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--soft); }
 
 /* Intensity segmented control (3 levels). */
 .segmented { display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; background: var(--surface); flex-wrap: wrap; }

@@ -45,15 +45,30 @@ This file records what *is* (current reality). The binding design canon is `docs
   **"Download data"** (`.md` export) beside **Roast me**, and a **3-level intensity
   control** (Keep it factual / Don’t hold back / Show no mercy; default the
   strongest) shown both before and, after a roast, in a post-roast panel (change
-  intensity + re-roast, and "Inspect papers used"). Warm-palette CSS + Plus Jakarta Sans / Space Mono in
-  `src/style.css`; fonts via `@import`. The roast POSTs `{ profile, intensity,
-  model }` to `WORKER_URL` and streams SSE, or shows an in-character error.
+  intensity + re-roast, and "Inspect papers used"). A **Format** selector (Straight
+  roast + 6 comedic presets) sits in the settings. Warm-palette CSS + Plus Jakarta
+  Sans / Space Mono in `src/style.css`; fonts via `@import`. The roast POSTs
+  `{ profile, intensity, format, regenerate, exclude }` to the Worker (the model is
+  fixed server-side in `roast.md`) and streams SSE, or shows an in-character error.
 - **Worker proxy** (`worker/`) — Cloudflare Worker proxying a **streaming** roast
   to OpenRouter: CORS preflight + origin pinning, validation (method, content
-  type, input size, model allowlist), per-IP daily rate limit (hashed IP in
+  type, input size), per-IP daily rate limit (hashed IP in
   Workers KV, plain `429`, `DAILY_LIMIT`=50), a server-side system prompt with the
   content rules + intensity, then `stream: true` relayed as SSE without buffering.
   Secrets `OPENROUTER_API_KEY` + `IP_HASH_SALT` (+ free `OPENALEX_API_KEY`).
+- **Humour controls + evaluation** — config consolidated into the single
+  `worker/roast.md` (`043`–`045`); the Worker hardened with per-IP retrieve throttle,
+  SSRF/redirect re-checks, fetch timeouts and a streaming size-cap (`049`, `051`).
+  **Roast humour** is tuned via opt-in `roast.md` config (all defaulting to the
+  current single-model, straight-roast behaviour): named `models` buckets +
+  per-intensity/regenerate `routing` with a fallback retry; comedic `formats` presets
+  (Reviewer 2, desk-rejection, tenure-denial, grant-panel, conference-intro,
+  performance-review); experimental `exemplars` (off by default); and a revised
+  single-angle comic prompt. Pure helpers in `worker/src/generation.mjs` are shared by
+  the Worker, the **`eval/` harness** (multi-candidate generation across conditions on
+  synthetic profiles + a blinded human pairwise `compare.html`, never an LLM judge),
+  and unit tests (`npm test`). Verified model prices live in `eval/prices.json` /
+  `docs/spend-and-limits.md`. See `docs/evaluation.md`.
 - **Structured-source retrieval** (`worker/src/index.ts`) — `/retrieve`
   (`{source,id,fresh?}` → `{text,stats?,charts?}` / `{error,reason}`) and `/search`
   (`{source,query}` → `{candidates:[{id,name,affiliation}]}`) for **GitHub, ORCID,

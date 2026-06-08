@@ -27,6 +27,20 @@ export const intensityLevels: ReadonlyArray<{ value: number; label: string }> = 
   { value: 3, label: 'Show no mercy' },
 ]
 
+// Comedic format presets the user can pick (the `value` is sent to the Worker as
+// `format`; the directives live server-side in worker/roast.md). Keep these keys in
+// sync with the `formats` list there. `straight` is the default plain roast.
+export const defaultFormat = 'straight'
+export const formats: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'straight', label: 'Straight roast' },
+  { value: 'reviewer2', label: 'Reviewer 2 report' },
+  { value: 'deskReject', label: 'Desk-rejection letter' },
+  { value: 'tenureDenial', label: 'Tenure-denial memo' },
+  { value: 'grantPanel', label: 'Grant-panel assessment' },
+  { value: 'confIntro', label: 'Conference introduction' },
+  { value: 'perfReview', label: 'Performance review' },
+]
+
 // User-facing copy. British English throughout. Kept here so wording is adjusted
 // in one place. The error strings are fixed, in-character messages used from the
 // streaming/error work onwards; they are never produced by a second model call.

@@ -1,4 +1,4 @@
-import { config, copy, intensityLevels } from './config'
+import { config, copy, intensityLevels, formats, defaultFormat } from './config'
 import { extractText, ocrPdf, UnsupportedFileError, ScannedPdfError } from './extract'
 import { demoResearcher } from './demo'
 import { copyText, downloadText, downloadImage } from './share'
@@ -131,6 +131,17 @@ export function mountApp(root: HTMLElement): void {
             <div class="action-row__intensity">
               <span class="micro-label">${copy.intensityLabel}</span>
               ${segGroup('intensity-in')}
+            </div>
+            <div class="action-row__format">
+              <span class="micro-label">Format</span>
+              <select id="format-in" class="select" aria-label="Roast format">
+                ${formats
+                  .map(
+                    (f) =>
+                      `<option value="${f.value}"${f.value === defaultFormat ? ' selected' : ''}>${f.label}</option>`,
+                  )
+                  .join('')}
+              </select>
             </div>
             <div class="action-row__go">
               <button class="btn btn--ghost" id="export-data" type="button">Download data</button>
@@ -269,10 +280,11 @@ export function mountApp(root: HTMLElement): void {
   }
   textarea.addEventListener('input', setCounter)
 
-  triggerRoast = () => void runRoast(textarea, root, output, roastBtn, sources, manual)
-  roastBtn.addEventListener('click', () => triggerRoast?.())
+  triggerRoast = (regenerate = false) =>
+    void runRoast(textarea, root, output, roastBtn, sources, manual, regenerate)
+  roastBtn.addEventListener('click', () => triggerRoast?.(false))
   // Re-roast from the Papers section after marking mis-attributed papers.
-  $<HTMLButtonElement>('#papers-reroast').addEventListener('click', () => triggerRoast?.())
+  $<HTMLButtonElement>('#papers-reroast').addEventListener('click', () => triggerRoast?.(true))
 
   // Intensity (3 levels), shared between the input control and the post-roast
   // control; picking a level in either updates the shared value and both controls.
@@ -294,7 +306,7 @@ export function mountApp(root: HTMLElement): void {
 
   // Post-roast options: re-roast at the current intensity, or jump to the Papers
   // list to mark mis-attributed papers.
-  $<HTMLButtonElement>('#reroast-btn').addEventListener('click', () => triggerRoast?.())
+  $<HTMLButtonElement>('#reroast-btn').addEventListener('click', () => triggerRoast?.(true))
   $<HTMLButtonElement>('#inspect-papers').addEventListener('click', () => {
     root.querySelector('#sec-papers')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
@@ -1100,6 +1112,10 @@ function selectedIntensity(): number {
   return currentIntensity
 }
 
+function selectedFormat(): string {
+  return document.querySelector<HTMLSelectElement>('#format-in')?.value || defaultFormat
+}
+
 function placeholderOut(output: HTMLElement, text: string): void {
   output.className = 'output placeholder'
   output.textContent = text
@@ -1233,7 +1249,7 @@ let lastRenderedPapers: Paper[] = []
 let roastAbort: AbortController | null = null
 const paperKey = (title: string): string => title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 // Re-runs the current roast (set by mountApp); used by the Papers re-roast button.
-let triggerRoast: (() => void) | null = null
+let triggerRoast: ((regenerate?: boolean) => void) | null = null
 
 function updateReroastButton(root: HTMLElement): void {
   const btn = root.querySelector<HTMLButtonElement>('#papers-reroast')
@@ -1473,6 +1489,7 @@ async function runRoast(
   button: HTMLButtonElement,
   sources: Set<string>,
   manual: HTMLDetailsElement,
+  regenerate = false,
 ): Promise<void> {
   if (!config.workerUrl) {
     placeholderOut(output, 'Roasting is not configured in this build yet (no Worker URL).')
@@ -1537,6 +1554,8 @@ async function runRoast(
       body: JSON.stringify({
         profile,
         intensity: selectedIntensity(),
+        format: selectedFormat(),
+        regenerate,
         exclude,
       }),
       signal: controller.signal,

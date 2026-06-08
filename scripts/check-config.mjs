@@ -77,9 +77,100 @@ if (match) {
         `\`defaultIntensity\` must be a whole level number between 1 and ${levels || 'the number of levels'}`,
       )
     }
+
+    // ── Optional humour config (model routing, formats, exemplars). Absent ⇒
+    // current single-model, straight-roast behaviour, so only validate when present.
+    const modelKeys =
+      cfg.models && typeof cfg.models === 'object' && !Array.isArray(cfg.models)
+        ? Object.keys(cfg.models)
+        : []
+    const knownBucket = (b) => modelKeys.length === 0 || modelKeys.includes(b)
+    if (cfg.models !== undefined) {
+      if (typeof cfg.models !== 'object' || Array.isArray(cfg.models)) {
+        errors.push('`models` must be a map of bucket → model slug')
+      } else {
+        for (const [k, v] of Object.entries(cfg.models)) {
+          if (typeof v !== 'string' || !v.trim()) errors.push(`models.${k} must be a non-empty model slug`)
+        }
+      }
+    }
+    if (cfg.routing !== undefined) {
+      if (typeof cfg.routing !== 'object' || Array.isArray(cfg.routing)) {
+        errors.push('`routing` must be a map (byIntensity, regenerate, fallback)')
+      } else {
+        const bi = cfg.routing.byIntensity
+        if (bi !== undefined) {
+          if (typeof bi !== 'object' || Array.isArray(bi)) {
+            errors.push('routing.byIntensity must be a map of level → bucket')
+          } else {
+            for (const [lvl, b] of Object.entries(bi)) {
+              if (typeof b !== 'string' || !knownBucket(b)) {
+                errors.push(`routing.byIntensity.${lvl} must name a key of \`models\``)
+              }
+            }
+          }
+        }
+        for (const key of ['regenerate', 'fallback']) {
+          const b = cfg.routing[key]
+          if (b !== undefined && (typeof b !== 'string' || !knownBucket(b))) {
+            errors.push(`routing.${key} must name a key of \`models\``)
+          }
+        }
+      }
+    }
+    const formatKeys = []
+    if (cfg.formats !== undefined) {
+      if (!Array.isArray(cfg.formats) || cfg.formats.length === 0) {
+        errors.push('`formats` must be a non-empty list of { key, label, directive }')
+      } else {
+        cfg.formats.forEach((f, i) => {
+          if (!f || typeof f.key !== 'string' || !f.key.trim()) {
+            errors.push(`formats[${i}].key must be a non-empty string`)
+          } else {
+            formatKeys.push(f.key)
+          }
+          if (f && f.directive !== undefined && typeof f.directive !== 'string') {
+            errors.push(`formats[${i}].directive must be a string`)
+          }
+        })
+        if (new Set(formatKeys).size !== formatKeys.length) {
+          errors.push('`formats` keys must be unique')
+        }
+      }
+    }
+    if (cfg.defaultFormat !== undefined) {
+      if (typeof cfg.defaultFormat !== 'string') {
+        errors.push('`defaultFormat` must be a string')
+      } else if (formatKeys.length && !formatKeys.includes(cfg.defaultFormat)) {
+        errors.push(`\`defaultFormat\` (${cfg.defaultFormat}) must be one of the format keys`)
+      }
+    }
+    if (cfg.exemplars !== undefined) {
+      const ex = cfg.exemplars
+      if (typeof ex !== 'object' || Array.isArray(ex)) {
+        errors.push('`exemplars` must be a map { enabled, pool }')
+      } else {
+        if (ex.enabled !== undefined && typeof ex.enabled !== 'boolean') {
+          errors.push('exemplars.enabled must be true or false')
+        }
+        if (ex.pool !== undefined && !Array.isArray(ex.pool)) {
+          errors.push('exemplars.pool must be a list of strings')
+        } else if (Array.isArray(ex.pool)) {
+          ex.pool.forEach((s, i) => {
+            if (typeof s !== 'string') errors.push(`exemplars.pool[${i}] must be a string`)
+          })
+        }
+        const usablePool = Array.isArray(ex.pool)
+          ? ex.pool.filter((s) => typeof s === 'string' && s.trim()).length
+          : 0
+        if (ex.enabled === true && usablePool === 0) {
+          errors.push('exemplars.enabled is true but exemplars.pool has no usable entries')
+        }
+      }
+    }
   }
 
-  for (const ph of ['{{INTENSITY}}', '{{EXCLUDE}}']) {
+  for (const ph of ['{{INTENSITY}}', '{{FORMAT}}', '{{EXEMPLAR}}', '{{EXCLUDE}}']) {
     if (!body.includes(ph)) {
       errors.push(`prompt body is missing the ${ph} placeholder`)
     }

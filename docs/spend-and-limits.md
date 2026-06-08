@@ -53,3 +53,23 @@ documented upgrade.
 
 Adjust `DAILY_LIMIT` in `wrangler.toml` and redeploy the Worker to change the
 per-IP cap.
+
+## 4. Model choice (per-roast cost)
+
+The per-roast cost is dominated by the model, configured in `worker/roast.md`
+(`model` and the `models`/`routing` buckets). The default keeps every tier on
+`google/gemini-2.5-flash`. Verified OpenRouter prices (June 2026, USD per 1M tokens,
+input/output) — keep this table and `eval/prices.json` in step when prices change:
+
+| Model | Input | Output |
+|---|---|---|
+| `google/gemini-2.5-flash-lite` | 0.10 | 0.40 |
+| `google/gemini-2.5-flash` (current default) | 0.30 | 2.50 |
+| `google/gemini-2.5-pro` | 1.25 | 10 |
+| `anthropic/claude-sonnet-4.5` | 3.00 | 15 |
+
+Routing is **selective**: only stronger intensity tiers and regenerate use the
+`quality` bucket, so a costlier model is never applied to every request. Use the eval
+harness (`docs/evaluation.md`) to weigh a stronger model's humour gain against its
+cost before switching, and remember the per-IP daily cap and the OpenRouter per-key
+budget still bound total exposure.

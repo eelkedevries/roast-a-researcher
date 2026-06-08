@@ -13,6 +13,19 @@ import { trendSummary, type YearPoint } from './trends'
 // [[rules]]) and split + parsed below. Edit that one file, not the code here.
 import roastMd from '../roast.md'
 import { parse as parseYaml } from 'yaml'
+// Pure generation helpers (model routing, comedic formats, exemplars, prompt
+// assembly). Shared with the eval harness and the unit tests; see generation.mjs.
+import {
+  selectModel,
+  fallbackModel,
+  formatDirectiveFor,
+  pickExemplar,
+  hashString,
+  intensityLine,
+  formatBlock,
+  exemplarBlock,
+  assemblePrompt,
+} from './generation.mjs'
 
 // Minimal shape of the Workers KV binding we use (avoids a full
 // @cloudflare/workers-types dependency for a single counter).
@@ -66,6 +79,16 @@ interface RawConfig {
   topP: number | string | null
   defaultIntensity: number
   intensity: { label: string; directive: string }[]
+  // Optional humour features — absent ⇒ current single-model, straight-roast behaviour.
+  models?: Record<string, string>
+  routing?: {
+    byIntensity?: Record<string, string>
+    regenerate?: string
+    fallback?: string
+  }
+  defaultFormat?: string
+  formats?: { key: string; label?: string; directive?: string }[]
+  exemplars?: { enabled?: boolean; pool?: string[] }
 }
 
 // roast.md is one file: YAML frontmatter (the knobs) between `---` fences, then the
@@ -98,6 +121,11 @@ const MIN_INTENSITY = Math.min(...INTENSITY_LEVELS.map((l) => l.level))
 const MAX_INTENSITY = Math.max(...INTENSITY_LEVELS.map((l) => l.level))
 const DEFAULT_INTENSITY = Math.round(RAW_CONFIG.defaultIntensity)
 const MAX_OUTPUT_TOKENS = MODEL_CONFIG.maxOutputTokens
+// Routing/format/exemplar config (all optional; defaults preserve current behaviour).
+const GEN_CONFIG = { models: RAW_CONFIG.models, routing: RAW_CONFIG.routing }
+const FORMATS = RAW_CONFIG.formats ?? []
+const DEFAULT_FORMAT = RAW_CONFIG.defaultFormat ?? 'straight'
+const EXEMPLARS = RAW_CONFIG.exemplars ?? { enabled: false, pool: [] }
 
 // --- rate-limiting helpers ---
 
@@ -167,23 +195,31 @@ function intensityDirective(level: number): string {
   return (found ?? INTENSITY_LEVELS[INTENSITY_LEVELS.length - 1]).directive
 }
 
-// Fill the prompt.md template: the {{INTENSITY}} line (level + directive) and the
-// {{EXCLUDE}} block (the user's confirmed mis-attributed works, or nothing).
-function buildSystemPrompt(intensity: number, exclude: string[] = []): string {
+// Fill the roast.md template: the {{INTENSITY}} line, the {{FORMAT}} block (chosen
+// comedic frame, or nothing), an optional {{EXEMPLAR}} (rotated per profile when
+// enabled), and the {{EXCLUDE}} block (the user's confirmed mis-attributed works).
+// Placeholder-filling and rotation live in generation.mjs (shared with the tests).
+function buildSystemPrompt(
+  intensity: number,
+  exclude: string[] = [],
+  formatKey: string = DEFAULT_FORMAT,
+  profileSeed = '',
+): string {
   const level = Math.min(MAX_INTENSITY, Math.max(MIN_INTENSITY, intensity))
-  const intensityLine = `Intensity (level ${level} of ${MAX_INTENSITY}). ${intensityDirective(level)}`
   const excludeBlock = exclude.length
     ? [
         'The user has confirmed the following works are NOT by this researcher (mis-attributed by the data source). Treat this as authoritative: ignore these works completely — do not mention, reference, or roast them, and do not count them towards the researcher\'s output:',
         ...exclude.slice(0, 100).map((t) => `- ${t}`),
       ].join('\n')
     : ''
-  // Function replacers: a literal replacement string would interpret `$&`, `` $` ``,
-  // `$'`, `$$` — and user-supplied excluded titles can contain those.
-  return promptTemplate
-    .replace('{{INTENSITY}}', () => intensityLine)
-    .replace('{{EXCLUDE}}', () => excludeBlock)
-    .trim()
+  const fmt = formatDirectiveFor(FORMATS, formatKey)
+  const ex = pickExemplar(EXEMPLARS, hashString(profileSeed))
+  return assemblePrompt(promptTemplate, {
+    intensity: intensityLine(level, MAX_INTENSITY, intensityDirective(level)),
+    exclude: excludeBlock,
+    format: formatBlock(fmt.directive),
+    exemplar: ex ? exemplarBlock(ex.text) : '',
+  })
 }
 
 // --- ORCID login (OAuth authorization-code, session-only) ---
@@ -2300,6 +2336,8 @@ export default {
       profile?: unknown
       intensity?: unknown
       exclude?: unknown
+      format?: unknown
+      regenerate?: unknown
     }
 
     // Titles the user marked as mis-attributed (not their work); fed to the system
@@ -2323,9 +2361,16 @@ export default {
       ? Math.min(MAX_INTENSITY, Math.max(MIN_INTENSITY, Math.round(rawIntensity)))
       : DEFAULT_INTENSITY
 
-    // The model is fixed server-side in roast.md; the request never chooses it, so
-    // an untrusted client can't steer the Worker onto another (e.g. costlier) model.
-    const model = MODEL_CONFIG.model
+    // Comedic format (an unknown/absent value resolves to the straight roast) and
+    // whether this is a regenerate (the front end sets it on re-roast).
+    const format = typeof body.format === 'string' ? body.format : DEFAULT_FORMAT
+    const regenerate = body.regenerate === true
+
+    // Model routing from roast.md (per-intensity + regenerate). The client never
+    // supplies a model slug, so it cannot steer the Worker onto a costlier model;
+    // routing buckets all default to the base model, so this is a no-op until the
+    // owner differentiates the models in roast.md.
+    const { model } = selectModel(GEN_CONFIG, MODEL_CONFIG.model, { intensity, regenerate })
 
     // Per-IP daily rate limit. The client IP is taken only from CF-Connecting-IP
     // (Cloudflare sets it at the edge); X-Forwarded-For is never trusted. The IP
@@ -2352,40 +2397,56 @@ export default {
       rlUsed = used
     }
 
-    const upstreamBody = {
-      model,
-      stream: true,
-      max_tokens: MAX_OUTPUT_TOKENS,
-      // temperature / top_p are optional knobs in roast.md: only sent when
-      // set, otherwise the model uses its own defaults.
-      ...(MODEL_CONFIG.temperature != null ? { temperature: MODEL_CONFIG.temperature } : {}),
-      ...(MODEL_CONFIG.topP != null ? { top_p: MODEL_CONFIG.topP } : {}),
-      // Ask OpenRouter to append a usage block (token counts + cost in USD) to the
-      // final stream chunk, surfaced in the front-end run metadata.
-      usage: { include: true },
-      messages: [
-        { role: 'system', content: buildSystemPrompt(intensity, exclude) },
-        { role: 'user', content: `<<<PROFILE\n${profile}\nPROFILE>>>` },
-      ],
-    }
-
-    let upstream: Response
-    try {
-      upstream = await fetchWithTimeout(OPENROUTER_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
+    const messages = [
+      { role: 'system', content: buildSystemPrompt(intensity, exclude, format, profile) },
+      { role: 'user', content: `<<<PROFILE\n${profile}\nPROFILE>>>` },
+    ]
+    const orBody = (modelSlug: string): string =>
+      JSON.stringify({
+        model: modelSlug,
+        stream: true,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        // temperature / top_p are optional knobs in roast.md: only sent when set.
+        ...(MODEL_CONFIG.temperature != null ? { temperature: MODEL_CONFIG.temperature } : {}),
+        ...(MODEL_CONFIG.topP != null ? { top_p: MODEL_CONFIG.topP } : {}),
+        // Ask OpenRouter to append a usage block (token counts + cost in USD) to the
+        // final stream chunk, surfaced in the front-end run metadata.
+        usage: { include: true },
+        messages,
+      })
+    const callOpenRouter = (modelSlug: string): Promise<Response> =>
+      fetchWithTimeout(
+        OPENROUTER_URL,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: orBody(modelSlug),
         },
-        body: JSON.stringify(upstreamBody),
-      }, 15000)
-    } catch {
-      return jsonError('upstream_error', 'The roast could not be generated.', 502, allowOrigin)
-    }
+        15000,
+      )
 
-    // Spend-cap and rate-limit signals are surfaced as upstream errors for now;
-    // dedicated handling arrives in 005.
-    if (!upstream.ok) {
+    // Call the selected model; on a failure (timeout or non-OK), fall back once to
+    // the configured fallback model before giving up.
+    let upstream: Response | null = null
+    try {
+      upstream = await callOpenRouter(model)
+    } catch {
+      upstream = null
+    }
+    if (!upstream || !upstream.ok) {
+      const fb = fallbackModel(GEN_CONFIG, MODEL_CONFIG.model)
+      if (fb !== model) {
+        try {
+          upstream = await callOpenRouter(fb)
+        } catch {
+          upstream = null
+        }
+      }
+    }
+    if (!upstream || !upstream.ok) {
       return jsonError('upstream_error', 'The roast could not be generated.', 502, allowOrigin)
     }
 

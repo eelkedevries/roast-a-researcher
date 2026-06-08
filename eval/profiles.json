@@ -1,0 +1,55 @@
+{
+  "_comment": "Synthetic, fictional academic profiles for humour evaluation only. No real people; any resemblance is coincidental. Each is public-record-style text the roaster works from. Keep additions fictional and free of private data.",
+  "profiles": [
+    {
+      "id": "p01",
+      "name": "Dr Harriet Polson",
+      "profile": "Dr Harriet Polson is a Senior Lecturer in Organisational Behaviour at the University of the Midlands. Her research concerns 'synergy', 'thought leadership' and 'the future of work'. Selected publications: 'Towards a Framework for Frameworks' (Journal of Management Thought, 2018, 4 citations); 'Leveraging Synergy in the Post-Synergy Era' (2020, 1 citation); 'A Conceptual Model of Conceptual Models' (2021, 0 citations). She has delivered 41 keynote talks and supervised 0 completed PhDs. Twitter bio: 'Disruptor. Storyteller. Lifelong learner.'"
+    },
+    {
+      "id": "p02",
+      "name": "Professor Alan Critchley",
+      "profile": "Professor Alan Critchley holds the Chair of Applied Statistics at Northgate University. He is the author of one paper, 'A Note on Variance', published in 1989 and cited 12,400 times because every introductory textbook reproduces its appendix. He has not published since. His departmental page lists his interests as 'rigour' and 'gardening'. He has been on sabbatical for nine of the last eleven years."
+    },
+    {
+      "id": "p03",
+      "name": "Dr Priya Anand",
+      "profile": "Dr Priya Anand is a postdoctoral researcher in computational neuroscience. Her PUBLICATIONS (authoritative, de-duplicated): 'Spike-Timing Models of the Zebrafish Habenula' (Nature Neuroscience, 2023, 88 citations); 'A Reanalysis of Spike-Timing Models' (2024, 9 citations). Her bio notes she 'enjoys long-distance running and shorter-distance grant deadlines'. She has held four consecutive two-year postdocs at four institutions and lists 'seeking permanent position' under current status."
+    },
+    {
+      "id": "p04",
+      "name": "Professor Gerald Vance",
+      "profile": "Professor Gerald Vance is Director of the Institute for Interdisciplinary Studies, which he founded, named, and is the sole member of. Across a 35-year career he has published in genetics, economics, theology, and competitive sailing, each exactly once. His most-cited work (7 citations) is a 2003 editorial titled 'Why Disciplines Are Dead'. He has won the Institute's Distinguished Scholar Award four years running."
+    },
+    {
+      "id": "p05",
+      "name": "Dr Mei-Ling Soren",
+      "profile": "Dr Mei-Ling Soren is an Assistant Professor of Digital Humanities. Her work applies machine learning to 19th-century shopping lists. Publications: 'What the Grocer Knew: NLP on Victorian Receipts' (2022, 31 citations); 'Toward a Taxonomy of Turnips' (2023, 5 citations). Her £1.2M grant, 'Big Data for Small Vegetables', is in year three. Her institutional bio describes her as 'a leading voice in a field she also named'."
+    },
+    {
+      "id": "p06",
+      "name": "Professor Tomas Reier",
+      "profile": "Professor Tomas Reier is a theoretical physicist whose 1990s work on string compactifications was genuinely influential (most-cited paper: 9,200 citations). His recent output consists of single-authored arXiv preprints, none submitted to journals, with titles such as 'On the Final Theory (Part XIV)'. His website's last update reads 'a complete formulation is imminent' and is dated 2014."
+    },
+    {
+      "id": "p07",
+      "name": "Dr Owen Blacklock",
+      "profile": "Dr Owen Blacklock is a Research Fellow in Science Communication. He has 0 first-author research papers but 312,000 followers across platforms, where he explains other people's findings. His one academic output is a 2021 commentary, 'Why Nobody Reads Papers' (cited 2 times). His grant portfolio totals £40, the cost of a webcam reimbursed in 2020. He describes himself as 'building a bridge between science and the public, one viral thread at a time'."
+    },
+    {
+      "id": "p08",
+      "name": "Professor Sandra Whitcombe",
+      "profile": "Professor Sandra Whitcombe is an expert in research ethics and integrity. Education: PhD, University of Caldermoor, 1998. She chairs three ethics committees and has written extensively on 'authorship inflation'. Her own publication list shows her as 14th author on a 60-author consortium paper and sole author of 'Guidelines for Guidelines' (2019). Her CV lists 'committee membership' as a section longer than 'research'."
+    },
+    {
+      "id": "p09",
+      "name": "Dr Felix Aderyn",
+      "profile": "Dr Felix Aderyn is a Lecturer in Sustainability Science. Research focus: carbon, circularity, and 'planetary thinking'. He flies to roughly 30 conferences a year to present his framework for reducing academic travel. Publications: 'A Roadmap to Net Zero Roadmaps' (2021, 6 citations). His email signature includes the line 'sent from my phone, please consider the environment before printing'."
+    },
+    {
+      "id": "p10",
+      "name": "Professor Iris Kandinsky",
+      "profile": "Professor Iris Kandinsky is a prolific medical researcher with 700 listed publications and an h-index of 9. She appears as middle author on large clinical trials and as sole author on letters to the editor. Her most-cited contribution (140 citations) is a correction. Her university profile lists 22 'ongoing projects' and a research statement consisting of the single word 'translational'."
+    }
+  ]
+}

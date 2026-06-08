@@ -29,10 +29,37 @@ prose below the frontmatter. Edit it and redeploy the Worker.
 | `topP` | nucleus sampling `0`–`1`, or `default` to leave it unset |
 | `defaultIntensity` | the level used when the request omits one |
 | `intensity` | the list of levels, each `{ label, directive }` (numbered by order) |
+| `models` | named model buckets (`lowCost`, `quality`, `experimental`); each defaults to `model` |
+| `routing` | `byIntensity` (level → bucket), `regenerate` (bucket on re-roast), `fallback` (bucket on error) |
+| `defaultFormat` / `formats` | comedic-format presets; each `{ key, label, directive }`. `straight` = plain roast |
+| `exemplars` | experimental few-shot: `{ enabled, pool[] }`. Off by default |
 
 `scripts/check-config.mjs` validates this file in `npm run check` and in the
 deploy workflow, so a malformed edit fails before it ships. The Worker is the sole
-authority on the model — the browser never sends one.
+authority on the model — the browser never sends a slug; it only sends an intensity
+and a `format` key.
+
+### Making roasts funnier (model routing, formats, exemplars)
+
+The humour features are **opt-in**: with the shipped defaults every routing bucket
+is the base `model`, the format is `straight`, and exemplars are off — so behaviour
+and cost are unchanged until you change them.
+
+- **Stronger model for stronger tiers.** Set `models.quality` to a stronger model
+  (e.g. `anthropic/claude-sonnet-4.5`) and `routing.byIntensity` already sends levels
+  2–3 to `quality`. Optionally set `models.lowCost` to `google/gemini-2.5-flash-lite`
+  for the mild tier. Confirm the humour gain (and the cost) first with the eval
+  harness — see `docs/evaluation.md`. Verified prices are listed in
+  `docs/spend-and-limits.md`.
+- **Formats.** The front-end "Format" selector sends a `format` key; the directive in
+  `roast.md` shapes the roast's frame (Reviewer 2 report, desk-rejection, tenure
+  denial, grant panel, conference intro, performance review). Directives never change
+  the facts — grounding and the content rules always win.
+- **Exemplars.** Set `exemplars.enabled: true` to rotate one off-domain structural
+  example into the prompt. Measure diversity/quality with the harness before enabling
+  in production; exemplars can cause stylistic convergence.
+- **Fallback.** If the selected model errors, the Worker retries once with
+  `routing.fallback`'s model.
 
 ## Worker — `worker/wrangler.toml` `[vars]` (committed, non-secret)
 
