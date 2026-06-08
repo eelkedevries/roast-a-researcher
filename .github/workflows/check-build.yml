@@ -28,9 +28,8 @@ jobs:
       - name: Install dependencies (reproducible)
         run: npm ci
 
-      - name: Build
-        run: npm run build
-
+      # `npm run check` already runs `vite build` (and produces dist/ for the
+      # public-build check below), so no separate Build step is needed.
       - name: Verify (project's verify command, if defined)
         run: npm run check --if-present
 
@@ -41,7 +40,7 @@ jobs:
         run: bash scripts/validate-prompts.sh
 
       - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
