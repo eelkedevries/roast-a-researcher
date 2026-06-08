@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.34 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
+**Version:** 1.35 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -424,6 +424,15 @@ ideas". It silently keeps at most one version and draws no attention to the
 repetition. (This is the model's own reading of the input; it is distinct from the
 front-end structured de-duplication of the Papers list described under Roast
 output presentation.)
+
+To make this reliable rather than prompt-only, the front end also hands the model a
+single **authoritative, de-duplicated publications list** — the merged structured
+papers (collapsing near-identical titles by token containment, keeping the highest
+citation count) appended to the profile under a clear heading. That list is the
+model's single source of truth for distinct works and their citation counts; the
+per-source narrative may still list the same work more than once with differing
+counts, and the model is instructed never to compare those counts or treat them as
+separate works. The same merged list backs the displayed Papers card.
 
 Content rules (the floor). These are enforced in the system prompt, apply at every
 intensity, and are not relaxable:

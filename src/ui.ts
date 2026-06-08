@@ -994,29 +994,91 @@ async function validateLinks(
   return { texts, stats, charts, papers }
 }
 
-// Merge papers from every source and remove duplicates: key on DOI when present,
-// else a normalised title. Keep the highest citation count and fill in any missing
-// venue/year; sort by citations then year (most notable first).
+// A few common words ignored when comparing titles, so a preprint and its journal
+// version (which often differ by a word or two) collapse to one work.
+const TITLE_STOPWORDS = new Set([
+  'the', 'a', 'an', 'of', 'for', 'on', 'in', 'to', 'and', 'with', 'from', 'by',
+])
+
+function titleTokens(title: string): Set<string> {
+  return new Set(
+    title
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .split(' ')
+      .filter((w) => w && !TITLE_STOPWORDS.has(w)),
+  )
+}
+
+// Two titles are the same work when (almost) every token of the shorter appears in
+// the longer — containment ≥ 0.9 — provided the shorter has enough tokens (≥ 4)
+// that the overlap is meaningful. Conservative, to avoid merging distinct papers.
+function sameWork(a: Set<string>, b: Set<string>): boolean {
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a]
+  if (small.size < 4) return false
+  let shared = 0
+  for (const t of small) if (large.has(t)) shared++
+  return shared / small.size >= 0.9
+}
+
+// Merge papers from every source and remove duplicates: an exact match on DOI or
+// normalised title, plus a fuzzy pass that collapses near-identical titles (a
+// preprint and its journal version, or the same work from two sources). Keep the
+// highest citation count, fill any missing venue/year, prefer the fullest title;
+// sort by citations then year (most notable first).
 function mergePapers(papers: ApiPaper[]): Paper[] {
   const norm = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
-  const map = new Map<string, Paper>()
+  type Group = { paper: Paper; tokens: Set<string>; doi: string | null; key: string }
+  const groups: Group[] = []
   for (const p of papers) {
     const title = (p.title || '').trim()
     if (!title) continue
-    const key = p.doi ? `doi:${p.doi}` : `t:${norm(title)}`
-    const existing = map.get(key)
-    if (!existing) {
-      map.set(key, { title, venue: p.venue ?? null, year: p.year ?? null, citations: p.citations ?? null })
+    const doi = p.doi ?? null
+    const key = norm(title)
+    const tokens = titleTokens(title)
+    const match = groups.find(
+      (g) => (doi && g.doi === doi) || g.key === key || sameWork(g.tokens, tokens),
+    )
+    if (!match) {
+      groups.push({
+        paper: { title, venue: p.venue ?? null, year: p.year ?? null, citations: p.citations ?? null },
+        tokens,
+        doi,
+        key,
+      })
       continue
     }
-    if ((p.citations ?? -1) > (existing.citations ?? -1)) existing.citations = p.citations ?? existing.citations
-    if (!existing.venue && p.venue) existing.venue = p.venue
-    if (existing.year == null && p.year != null) existing.year = p.year
-    if (title.length > (existing.title?.length ?? 0)) existing.title = title
+    const ex = match.paper
+    if ((p.citations ?? -1) > (ex.citations ?? -1)) ex.citations = p.citations ?? ex.citations
+    if (!ex.venue && p.venue) ex.venue = p.venue
+    if (ex.year == null && p.year != null) ex.year = p.year
+    if (title.length > (ex.title?.length ?? 0)) ex.title = title
+    if (!match.doi && doi) match.doi = doi
+    for (const t of tokens) match.tokens.add(t)
   }
-  return [...map.values()].sort(
-    (a, b) => (b.citations ?? -1) - (a.citations ?? -1) || (b.year ?? 0) - (a.year ?? 0),
-  )
+  return groups
+    .map((g) => g.paper)
+    .sort((a, b) => (b.citations ?? -1) - (a.citations ?? -1) || (b.year ?? 0) - (a.year ?? 0))
+}
+
+// An authoritative, de-duplicated publications list to hand the model, so it never
+// sees the same work twice with conflicting citation counts (the per-source
+// narrative can list a preprint and its journal version separately). Capped to
+// keep the input bounded.
+function publicationsBlock(papers: Paper[]): string {
+  if (!papers.length) return ''
+  const lines = papers.slice(0, 60).map((p) => {
+    const meta = [p.venue, p.year != null ? String(p.year) : null].filter(Boolean).join(', ')
+    const cites =
+      p.citations != null ? ` — ${p.citations} citation${p.citations === 1 ? '' : 's'}` : ''
+    return `- "${p.title}"${meta ? ` (${meta})` : ''}${cites}`
+  })
+  return [
+    'PUBLICATIONS (authoritative, de-duplicated across all sources — each distinct work appears exactly once, with its highest citation count):',
+    ...lines,
+  ].join('\n')
 }
 
 function randomError(): string {
@@ -1425,7 +1487,10 @@ async function runRoast(
     papers: linkPapers,
   } = await validateLinks(root, sources)
   const docTexts = collectDocumentTexts(root)
-  const profile = [textarea.value.trim(), ...docTexts, ...linkTexts]
+  // One authoritative, de-duplicated publications list, appended to the profile so
+  // the model never sees the same work twice with conflicting citation counts.
+  const mergedPapers = mergePapers(linkPapers)
+  const profile = [textarea.value.trim(), ...docTexts, ...linkTexts, publicationsBlock(mergedPapers)]
     .filter(Boolean)
     .join('\n\n')
     .trim()
@@ -1568,9 +1633,9 @@ async function runRoast(
         usage,
       })
       // Structured papers from all sources, merged and de-duplicated, take
-      // precedence over the model's per-source extraction.
-      const merged = mergePapers(linkPapers)
-      if (merged.length) renderPapers(root, merged.slice(0, 300))
+      // precedence over the model's per-source extraction (reusing the list already
+      // built for the model's authoritative publications block).
+      if (mergedPapers.length) renderPapers(root, mergedPapers.slice(0, 300))
       renderStatsCard(root, linkStats)
       const chartsCard = root.querySelector<HTMLElement>('#charts-card')
       if (chartsCard) renderCharts(chartsCard, linkCharts)
