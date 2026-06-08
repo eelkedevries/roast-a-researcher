@@ -18,6 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        # Full history so the Gitleaks scan can resolve a multi-commit push range
+        # (the default shallow depth-1 lacks the parent of the oldest pushed commit).
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
