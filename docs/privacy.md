@@ -17,10 +17,17 @@ generate the roast. The roast streams back the same way.
 
 ## What is stored
 
-Nothing. The roast is generated per request and is not saved. The Worker keeps no
-profile text and no logs of it; the only state it retains is the rate-limit
-counter — a **hashed** IP and a count (see `docs/spend-and-limits.md`), which
-expires daily and contains no raw IP.
+Your pasted or uploaded profile text and the roast are never saved or logged. The
+Worker retains only two pieces of state, neither of which holds your profile text
+or the roast:
+
+- the **rate-limit counter** — a **hashed** IP and a count (see
+  `docs/spend-and-limits.md`), which expires daily and contains no raw IP;
+- a **short-lived cache of public-record retrievals** — when you enter a source
+  (ORCID, OpenAlex, GitHub, Semantic Scholar, DBLP) or a website URL, the
+  assembled public data fetched for it (including text scraped from a website URL
+  you supply) is cached in Workers KV, keyed by source and identifier, for a
+  default of 24 hours (`RETRIEVE_CACHE_TTL`) so repeat lookups are fast and cheap.
 
 The page keeps the text and the roast only in memory for the session.
 

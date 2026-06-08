@@ -1,18 +1,21 @@
 # Installation
 
-Project-facing installation instructions. Replace the placeholders below with the project's actual requirements.
+How to set up the project locally for development.
 
 ## Prerequisites
 
-- List required runtimes and tools (for example, Node.js and npm).
+- Node.js (with npm).
 
 ## Install
 
 ```bash
-git clone <repository-url>
-cd <project-name>
-npm install
+git clone git@github.com:eelkedevries/roast-a-researcher.git
+cd roast-a-researcher
+npm ci
 ```
+
+`npm ci` installs the exact dependencies from the committed lockfile (use it
+rather than `npm install`, which can drift the lockfile).
 
 ## Run locally
 

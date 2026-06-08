@@ -15,8 +15,8 @@ them separately.
    `https://eelkedevries.github.io/roast-a-researcher/` (the base path is set in
    `vite.config.ts`).
 
-The front end holds no secret. Its only knowledge of the backend is `WORKER_URL`
-in `src/config.ts`, set at build time.
+The front end holds no secret. Its only knowledge of the backend is `workerUrl`
+in `src/config.ts`, a committed value set at build time.
 
 ## Worker → Cloudflare
 
@@ -35,9 +35,12 @@ From `worker/`:
 3. Set the secrets:
    - `npx wrangler secret put OPENROUTER_API_KEY`
    - `npx wrangler secret put IP_HASH_SALT` (any long random string)
+   - optional: `npx wrangler secret put OPENALEX_API_KEY` (free key, steadier OpenAlex limits)
+   - optional, for "Log in with ORCID": `npx wrangler secret put ORCID_CLIENT_SECRET`
+     and `npx wrangler secret put SESSION_SECRET` (login is disabled when either is unset)
 4. Deploy: `npx wrangler deploy`.
 
-After deploying the Worker, set `WORKER_URL` in `src/config.ts` to the Worker URL
+After deploying the Worker, set `workerUrl` in `src/config.ts` to the Worker URL
 and redeploy the front end so the page calls the live Worker.
 
 ## CORS

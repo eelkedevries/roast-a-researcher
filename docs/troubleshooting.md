@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Project-facing troubleshooting notes. Replace the placeholders below with the project's actual issues and fixes.
+Project-facing troubleshooting notes.
 
 ## Blank GitHub Pages screen
 
