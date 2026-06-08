@@ -1,8 +1,10 @@
 # Model parameters
 
-User-adjustable knobs that influence how the model generates a roast. Edit the
-values in the `json` block below, then redeploy the Worker (`wrangler deploy`, or
-push to `main` to let CI deploy). The prompt text itself lives in `prompt.md`.
+User-adjustable knobs that influence how the model generates a roast. The live
+values are in **`model-config.json`** (the single source of truth) — edit that file,
+then redeploy the Worker (`wrangler deploy`, or push to `main` to let CI deploy). A
+syntax error in the JSON fails `wrangler deploy --dry-run`, so a bad edit is caught
+before it ships. The prompt text itself lives in `prompt.md`.
 
 These are **not** the only model-related settings. Two live elsewhere because they
 are deployment/security configuration:
@@ -12,7 +14,7 @@ are deployment/security configuration:
   labels are in `src/config.ts`.
 - **Maximum input length** — `MAX_INPUT_CHARS` in `wrangler.toml`.
 
-## Parameters
+## Parameters (in `model-config.json`)
 
 - **maxOutputTokens** — hard cap on the length of the generated roast (OpenRouter
   `max_tokens`).
@@ -26,31 +28,3 @@ are deployment/security configuration:
   browser sends, a short `label`, and the `directive` text appended to the prompt.
   The minimum and maximum selectable levels are taken from the smallest and largest
   `level` values present.
-
-```json
-{
-  "maxOutputTokens": 1500,
-  "temperature": null,
-  "topP": null,
-  "intensity": {
-    "default": 3,
-    "levels": [
-      {
-        "level": 1,
-        "label": "Keep it factual",
-        "directive": "Keep it factual: dry, deadpan and understated — wry observations grounded strictly in the record, with the lightest comic touch and no exaggeration."
-      },
-      {
-        "level": 2,
-        "label": "Don't hold back",
-        "directive": "Don't hold back: sharp, witty and properly cutting, with real bite."
-      },
-      {
-        "level": 3,
-        "label": "Show no mercy",
-        "directive": "Show no mercy: as brutal, savage and cutting as the content rules allow — go for the jugular within the rules."
-      }
-    ]
-  }
-}
-```

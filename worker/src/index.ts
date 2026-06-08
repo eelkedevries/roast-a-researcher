@@ -8,10 +8,12 @@ import { metricsSummary, computeMetrics } from './metrics'
 import { continentOf, countryName } from './geo'
 import { trendSummary, type YearPoint } from './trends'
 // User-facing configuration, kept out of this file: the prompt instructions
-// (prompt.md) and the generation parameters (model-config.md). Both are bundled as
-// Text modules (see wrangler.toml [[rules]]). Edit those files, not the code below.
+// (prompt.md, bundled as a Text module — see wrangler.toml [[rules]]) and the
+// generation parameters (model-config.json, parsed natively by esbuild). The
+// documentation for the parameters lives in model-config.md. Edit those files, not
+// the code below.
 import promptTemplate from '../prompt.md'
-import modelConfigMd from '../model-config.md'
+import modelConfigJson from '../model-config.json'
 
 // Minimal shape of the Workers KV binding we use (avoids a full
 // @cloudflare/workers-types dependency for a single counter).
@@ -50,7 +52,7 @@ export interface Env {
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
-// --- model configuration (from model-config.md) ---
+// --- model configuration (from model-config.json; documented in model-config.md) ---
 
 interface IntensityLevel {
   level: number
@@ -64,15 +66,9 @@ interface ModelConfig {
   intensity: { default: number; levels: IntensityLevel[] }
 }
 
-// model-config.md is documentation around a single ```json``` block; pull that out
-// and parse it. A malformed block fails fast at startup with a clear message.
-function loadModelConfig(md: string): ModelConfig {
-  const block = md.match(/```json\s*([\s\S]*?)```/)
-  if (!block) throw new Error('model-config.md: missing ```json configuration block')
-  return JSON.parse(block[1]) as ModelConfig
-}
-
-const MODEL_CONFIG = loadModelConfig(modelConfigMd)
+// esbuild parses the imported JSON at build time, so a malformed edit fails
+// `wrangler deploy --dry-run` rather than throwing at runtime.
+const MODEL_CONFIG = modelConfigJson as ModelConfig
 const INTENSITY_LEVELS = MODEL_CONFIG.intensity.levels
 const MIN_INTENSITY = Math.min(...INTENSITY_LEVELS.map((l) => l.level))
 const MAX_INTENSITY = Math.max(...INTENSITY_LEVELS.map((l) => l.level))
