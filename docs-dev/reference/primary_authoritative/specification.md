@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.33 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
+**Version:** 1.34 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -410,17 +410,19 @@ attitudes, or characterisations the input gives no basis for (for example, time
 spent at conferences, ego, or lifestyle, when nothing in the input touches them).
 If the supplied input could not have given the model the idea, the line is cut.
 
-Versions of one work. A single piece of research routinely appears as a preprint,
-a conference paper, and a peer-reviewed journal article — often with slightly
-different titles and years. These are the same work in different venues, which is
-entirely normal. Before extracting papers or writing the roast, the model
-collapses such near-duplicate entries (similar titles, the same or adjacent years,
-the same topic) into a single publication: it lists the work once and treats it as
-one. It never reads repeated or similar titles as duplicate publication,
-self-plagiarism, salami-slicing, or retraction, and never jokes that the same
-paper was published multiple times or that the researcher padded a CV through
-republication. (This is the model's own reading of the input; it is distinct from
-the front-end structured de-duplication of the Papers list described under Roast
+Versions of one work. A single piece of research routinely appears more than once —
+as a preprint, a conference paper, and a peer-reviewed journal article, and as
+plain database duplicates — often with slightly different titles and years. Two or
+more entries with near-identical titles (even one word or only punctuation apart,
+even in the same or adjacent years) are the same work, never a second publication.
+This is an absolute rule with no exceptions at any intensity: the model collapses
+such entries into one publication and must never comment on, quote, compare, or
+joke about title similarity, repeated titles, "minute"/"linguistic" variation, or
+a paper seemingly published more than once, and must never imply republication,
+self-plagiarism, salami-slicing, CV-padding, retraction, or "running out of
+ideas". It silently keeps at most one version and draws no attention to the
+repetition. (This is the model's own reading of the input; it is distinct from the
+front-end structured de-duplication of the Papers list described under Roast
 output presentation.)
 
 Content rules (the floor). These are enforced in the system prompt, apply at every
