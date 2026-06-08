@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.31 · **Last updated:** 2026-06-07 · **Status:** binding design canon.
+**Version:** 1.32 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -402,13 +402,22 @@ fraud, plagiarism, retractions, scandals — that are absent from the supplied t
 Anything in that territory must either come from the pasted material or not appear
 at all. The register stays clearly comedic, not reportorial.
 
+Grounded premises. Beyond invented allegations and facts, the model must not
+invent the comedic *premise* of a line. Every joke needs a premise a reader could
+trace to something actually in the supplied text: the model may exaggerate or spin
+what is genuinely there, but it must not attribute behaviours, habits, traits,
+attitudes, or characterisations the input gives no basis for (for example, time
+spent at conferences, ego, or lifestyle, when nothing in the input touches them).
+If the supplied input could not have given the model the idea, the line is cut.
+
 Content rules (the floor). These are enforced in the system prompt, apply at every
 intensity, and are not relaxable:
 
 - no content targeting protected characteristics (race, ethnicity, nationality,
   gender, sexuality, disability, religion, age, appearance, and the like);
 - nothing harassing, defamatory, or sexual;
-- no invented factual allegations presented as true;
+- no invented factual allegations presented as true, and no invented comedic
+  premises — every line must trace to something actually in the supplied text;
 - the roast is comedy about a professional and public academic record, not about
   a private individual.
 
@@ -677,7 +686,8 @@ which is comedic by design but still bounded by the content rules above.
   specifics-as-fact and no manufactured allegations.
 - Content rules are the floor at every intensity: no protected-characteristic
   content; nothing harassing, defamatory, or sexual; no invented factual
-  allegations; comedy about a public academic record, not a private individual.
+  allegations and no invented comedic premises (every line traces to the supplied
+  text); comedy about a public academic record, not a private individual.
 - No consent step and no target-identity classifier; the content rules are
   enforced in the system prompt only. Self-roast framing is conveyed by interface
   copy; an explicit confirmation step was deliberately omitted.
