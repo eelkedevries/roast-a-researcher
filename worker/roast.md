@@ -1,3 +1,33 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Roast settings. Edit the values below, then save — CI redeploys the Worker.
+# This top block (between the --- lines) is the configuration; the instructions
+# the model follows are the prose underneath. A mistake here is caught before it
+# goes live (the deploy runs scripts/check-config.mjs first).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Which model generates the roast. Any model slug from openrouter.ai/models.
+model: google/gemini-2.5-flash
+
+# Hard cap on the length of the roast (in tokens).
+maxOutputTokens: 1500
+
+# Sampling knobs. Use the word `default` to let the model decide, or a number
+# (temperature 0–2, topP 0–1). Higher temperature = more random/varied.
+temperature: default
+topP: default
+
+# The intensity slider. `defaultIntensity` is used when none is chosen; it must be
+# one of the level numbers below (levels are numbered 1, 2, 3… by their order).
+defaultIntensity: 3
+intensity:
+  - label: "Keep it factual"
+    directive: "Keep it factual: dry, deadpan and understated — wry observations grounded strictly in the record, with the lightest comic touch and no exaggeration."
+  - label: "Don't hold back"
+    directive: "Don't hold back: sharp, witty and properly cutting, with real bite."
+  - label: "Show no mercy"
+    directive: "Show no mercy: as brutal, savage and cutting as the content rules allow — go for the jugular within the rules."
+---
 You are a comedy writer roasting an academic, working only from the profile text the user supplies.
 The roast is comedy about a public, professional academic record — not an attack on a private individual.
 

@@ -7,13 +7,12 @@
 import { metricsSummary, computeMetrics } from './metrics'
 import { continentOf, countryName } from './geo'
 import { trendSummary, type YearPoint } from './trends'
-// User-facing configuration, kept out of this file: the prompt instructions
-// (prompt.md, bundled as a Text module — see wrangler.toml [[rules]]) and the
-// generation parameters (model-config.json, parsed natively by esbuild). The
-// documentation for the parameters lives in model-config.md. Edit those files, not
-// the code below.
-import promptTemplate from '../prompt.md'
-import modelConfigJson from '../model-config.json'
+// User-facing configuration, kept out of this file: the single file `roast.md`
+// holds the model, the generation parameters (YAML frontmatter) and the prompt
+// instructions (the prose body). It is bundled as a Text module (see wrangler.toml
+// [[rules]]) and split + parsed below. Edit that one file, not the code here.
+import roastMd from '../roast.md'
+import { parse as parseYaml } from 'yaml'
 
 // Minimal shape of the Workers KV binding we use (avoids a full
 // @cloudflare/workers-types dependency for a single counter).
@@ -28,7 +27,6 @@ interface KvCounter {
 
 export interface Env {
   ALLOW_ORIGIN: string
-  MODEL_ALLOWLIST: string
   MAX_INPUT_CHARS: string
   DAILY_LIMIT: string
   OPENROUTER_API_KEY: string
@@ -52,27 +50,52 @@ export interface Env {
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
-// --- model configuration (from model-config.json; documented in model-config.md) ---
+// --- model configuration & prompt (from roast.md) ---
 
 interface IntensityLevel {
   level: number
   label: string
   directive: string
 }
-interface ModelConfig {
+// Raw frontmatter shape: temperature/topP may be a number or the word `default`.
+interface RawConfig {
+  model: string
   maxOutputTokens: number
-  temperature: number | null
-  topP: number | null
-  intensity: { default: number; levels: IntensityLevel[] }
+  temperature: number | string | null
+  topP: number | string | null
+  defaultIntensity: number
+  intensity: { label: string; directive: string }[]
 }
 
-// esbuild parses the imported JSON at build time, so a malformed edit fails
-// `wrangler deploy --dry-run` rather than throwing at runtime.
-const MODEL_CONFIG = modelConfigJson as ModelConfig
-const INTENSITY_LEVELS = MODEL_CONFIG.intensity.levels
+// roast.md is one file: YAML frontmatter (the knobs) between `---` fences, then the
+// prompt body. scripts/check-config.mjs validates the same file at build/deploy time,
+// so a malformed edit fails before it ships; here we split and parse it at startup.
+function splitFrontmatter(src: string): { data: string; body: string } {
+  const m = src.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
+  if (!m) throw new Error('roast.md: missing YAML frontmatter delimited by --- lines')
+  return { data: m[1], body: m[2] }
+}
+
+const { data: roastFrontmatter, body: promptTemplate } = splitFrontmatter(roastMd)
+const RAW_CONFIG = parseYaml(roastFrontmatter) as RawConfig
+// `default` (or any non-number) leaves the knob unset so the model uses its own.
+const numOrNull = (v: number | string | null): number | null =>
+  typeof v === 'number' ? v : null
+const MODEL_CONFIG = {
+  model: RAW_CONFIG.model,
+  maxOutputTokens: RAW_CONFIG.maxOutputTokens,
+  temperature: numOrNull(RAW_CONFIG.temperature),
+  topP: numOrNull(RAW_CONFIG.topP),
+}
+// Levels are numbered by their order in the list (first entry is level 1).
+const INTENSITY_LEVELS: IntensityLevel[] = RAW_CONFIG.intensity.map((l, i) => ({
+  level: i + 1,
+  label: l.label,
+  directive: l.directive,
+}))
 const MIN_INTENSITY = Math.min(...INTENSITY_LEVELS.map((l) => l.level))
 const MAX_INTENSITY = Math.max(...INTENSITY_LEVELS.map((l) => l.level))
-const DEFAULT_INTENSITY = MODEL_CONFIG.intensity.default
+const DEFAULT_INTENSITY = Math.round(RAW_CONFIG.defaultIntensity)
 const MAX_OUTPUT_TOKENS = MODEL_CONFIG.maxOutputTokens
 
 // --- rate-limiting helpers ---
@@ -2167,7 +2190,6 @@ export default {
     const body = payload as {
       profile?: unknown
       intensity?: unknown
-      model?: unknown
       exclude?: unknown
     }
 
@@ -2192,14 +2214,9 @@ export default {
       ? Math.min(MAX_INTENSITY, Math.max(MIN_INTENSITY, Math.round(rawIntensity)))
       : DEFAULT_INTENSITY
 
-    const allowlist = env.MODEL_ALLOWLIST.split(',')
-      .map((slug) => slug.trim())
-      .filter(Boolean)
-    const requestedModel = typeof body.model === 'string' ? body.model : ''
-    const model = requestedModel || allowlist[0]
-    if (!model || !allowlist.includes(model)) {
-      return jsonError('bad_model', 'Requested model is not allowed.', 400, allowOrigin)
-    }
+    // The model is fixed server-side in roast.md; the request never chooses it, so
+    // an untrusted client can't steer the Worker onto another (e.g. costlier) model.
+    const model = MODEL_CONFIG.model
 
     // Per-IP daily rate limit. The client IP is taken only from CF-Connecting-IP
     // (Cloudflare sets it at the edge); X-Forwarded-For is never trusted. The IP
@@ -2227,7 +2244,7 @@ export default {
       model,
       stream: true,
       max_tokens: MAX_OUTPUT_TOKENS,
-      // temperature / top_p are optional knobs in model-config.md: only sent when
+      // temperature / top_p are optional knobs in roast.md: only sent when
       // set, otherwise the model uses its own defaults.
       ...(MODEL_CONFIG.temperature != null ? { temperature: MODEL_CONFIG.temperature } : {}),
       ...(MODEL_CONFIG.topP != null ? { top_p: MODEL_CONFIG.topP } : {}),

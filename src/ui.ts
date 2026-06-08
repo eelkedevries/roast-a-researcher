@@ -1358,7 +1358,7 @@ function renderRunMeta(
   parts.push(
     `Input ${n(info.inputChars)} chars${typeof promptTok === 'number' ? ` (${n(promptTok)} tokens)` : ''}`,
   )
-  parts.push(`Model ${info.model}`)
+  if (info.model) parts.push(`Model ${info.model}`)
   const total = info.usage?.total_tokens
   if (typeof total === 'number') {
     const p = info.usage?.prompt_tokens
@@ -1520,7 +1520,6 @@ async function runRoast(
       body: JSON.stringify({
         profile,
         intensity: selectedIntensity(),
-        model: config.defaultModel,
         exclude,
       }),
     })
@@ -1529,7 +1528,7 @@ async function runRoast(
       const data = (await response.json().catch(() => null)) as
         | { error?: string; message?: string }
         | null
-      const plain = new Set(['too_large', 'bad_model', 'bad_request', 'rate_limited'])
+      const plain = new Set(['too_large', 'bad_request', 'rate_limited'])
       placeholderOut(
         output,
         data && data.error && plain.has(data.error) && data.message ? data.message : randomError(),
@@ -1552,6 +1551,8 @@ async function runRoast(
     let metaDone = false
     let roastStart = 0
     let usage: Usage | null = null
+    // The model is fixed server-side (roast.md); the stream reports which one ran.
+    let usedModel = ''
 
     // Parse the leading JSON personalia block as soon as it is complete, without
     // depending on the marker or clean formatting. An optional `===ROAST===` marker
@@ -1594,8 +1595,10 @@ async function runRoast(
           const json = JSON.parse(payload) as {
             choices?: Array<{ delta?: { content?: string } }>
             usage?: Usage
+            model?: string
           }
           if (json.usage) usage = json.usage
+          if (json.model) usedModel = json.model
           const delta = json.choices?.[0]?.delta?.content
           if (delta) {
             raw += delta
@@ -1629,7 +1632,7 @@ async function runRoast(
       renderRunMeta(root, {
         elapsedMs: performance.now() - started,
         inputChars: profile.length,
-        model: config.defaultModel,
+        model: usedModel,
         usage,
       })
       // Structured papers from all sources, merged and de-duplicated, take

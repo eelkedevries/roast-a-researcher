@@ -2,10 +2,9 @@ name = "roast-a-researcher"
 main = "src/index.ts"
 compatibility_date = "2026-06-05"
 
-# Bundle prompt.md (the prompt template) as a Text module so src/index.ts can import
-# it as a string. The generation parameters live in model-config.json, which esbuild
-# parses natively (no Text rule needed); model-config.md documents those knobs. The
-# prompt and parameters live in those files, not in the code.
+# Bundle roast.md (the single config + prompt file) as a Text module so src/index.ts
+# can import it as a string and split its YAML frontmatter from the prompt body. The
+# model, parameters and instructions all live in that one file, not in the code.
 [[rules]]
 type = "Text"
 globs = ["**/*.md"]
@@ -16,7 +15,6 @@ fallthrough = true
 # (git-ignored) for local `wrangler dev`.
 [vars]
 ALLOW_ORIGIN = "https://eelkedevries.github.io"
-MODEL_ALLOWLIST = "google/gemini-2.5-flash"
 MAX_INPUT_CHARS = "40000"
 DAILY_LIMIT = "50"
 # Contact for the OpenAlex "polite pool" — steadier per-contact rate limits than

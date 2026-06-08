@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "tsc --noEmit && vite build",
+    "check": "node scripts/check-config.mjs && tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
@@ -18,6 +18,7 @@
     "fflate": "^0.8.3",
     "mammoth": "^1.12.0",
     "pdfjs-dist": "^6.0.227",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "yaml": "^2.9.0"
   }
 }

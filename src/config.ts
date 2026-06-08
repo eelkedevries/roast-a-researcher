@@ -5,8 +5,6 @@
 export interface AppConfig {
   /** Deployed Worker endpoint the front end calls. Wired in 003; empty for now. */
   workerUrl: string
-  /** Model slug requested by default (confirmed against openrouter.ai/models at build). */
-  defaultModel: string
   /** Client-side input cap, mirroring the Worker's authoritative limit. */
   maxInputChars: number
   /** Default roast intensity on the 1–10 scaler. */
@@ -17,7 +15,6 @@ export interface AppConfig {
 
 export const config: AppConfig = {
   workerUrl: 'https://roast-a-researcher.eelkedevries.workers.dev',
-  defaultModel: 'google/gemini-2.5-flash',
   maxInputChars: 40000,
   defaultIntensity: 3,
   orcidLoginEnabled: true,

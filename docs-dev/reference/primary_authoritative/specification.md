@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.37 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
+**Version:** 1.38 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -98,7 +98,8 @@ roast-a-researcher/
 ├── package.json
 ├── worker/                   # Cloudflare Worker (the proxy); created by prompt 003
 │   ├── src/index.ts
-│   ├── wrangler.toml         # [vars] ALLOW_ORIGIN, DAILY_LIMIT, MODEL_ALLOWLIST, MAX_INPUT_CHARS; KV binding
+│   ├── wrangler.toml         # [vars] ALLOW_ORIGIN, DAILY_LIMIT, MAX_INPUT_CHARS; KV binding
+│   ├── roast.md              # single config file: YAML frontmatter (model + knobs) + prompt body
 │   └── .dev.vars             # local secrets (git-ignored)
 ├── .github/workflows/        # check-build.yml (front end) from the template
 ├── docs/                     # user-facing: README, configuration, deployment, privacy
@@ -118,8 +119,9 @@ The Worker is a thin, OpenAI-compatible proxy. On each request it, in order:
 
 1. answers the CORS preflight (`OPTIONS`) and rejects any origin other than the
    configured Pages origin;
-2. validates method, content type, body presence, input size (against
-   `MAX_INPUT_CHARS`), and the requested model (against `MODEL_ALLOWLIST`);
+2. validates method, content type, body presence and input size (against
+   `MAX_INPUT_CHARS`); the model is fixed server-side in `roast.md`, not chosen by
+   the request;
 3. checks the per-user daily rate limit (below) and returns `429` if exceeded;
 4. assembles the OpenRouter request server-side — a fixed system prompt (carrying
    the content rules) plus the user's text and chosen intensity — so the prompt is
@@ -127,20 +129,22 @@ The Worker is a thin, OpenAI-compatible proxy. On each request it, in order:
 5. calls OpenRouter with `stream: true` and relays the SSE body straight back,
    without buffering.
 
-The system prompt and the generation parameters are not hardcoded in the Worker
-source. They live in user-facing files bundled into the Worker. **`worker/prompt.md`**
-is the prompt template (with `{{INTENSITY}}` and `{{EXCLUDE}}` placeholders the Worker
-fills per request), bundled as a Text module (`worker/wrangler.toml` `[[rules]]`
-`type = "Text"`). **`worker/model-config.json`** holds the adjustable knobs —
-`maxOutputTokens`, optional `temperature` and `topP` (each `null` to leave the
-model's default, a number to override), and the `intensity` levels (each level's
-value, label and directive, plus the default) — imported and parsed natively by
-esbuild, so a malformed edit fails `wrangler deploy --dry-run` rather than at runtime;
-**`worker/model-config.md`** documents those knobs. The allowed model(s)
-(`MODEL_ALLOWLIST`) and input cap (`MAX_INPUT_CHARS`) remain deployment
-configuration in `wrangler.toml`. Editing these files changes behaviour without
-touching code; all are bundled server-side, so the prompt is still never exposed
-to the browser.
+The model, the generation parameters and the system prompt are not hardcoded in the
+Worker source. They live in a single user-facing file, **`worker/roast.md`**, bundled
+into the Worker as a Text module (`worker/wrangler.toml` `[[rules]]` `type = "Text"`).
+Its YAML frontmatter holds the adjustable knobs — `model` (the OpenRouter slug the
+Worker calls), `maxOutputTokens`, optional `temperature` and `topP` (a number, or
+`default` to leave the model's own), `defaultIntensity`, and the `intensity` list
+(each level's `label` and `directive`, numbered by order) — and the prose body below
+the frontmatter is the prompt template (with `{{INTENSITY}}` and `{{EXCLUDE}}`
+placeholders the Worker fills per request). The Worker splits the file and parses the
+frontmatter with the `yaml` library at startup; `scripts/check-config.mjs` validates
+the same file in `npm run check` and in the deploy workflow, so a malformed edit fails
+before it ships. The input cap (`MAX_INPUT_CHARS`) and rate limit remain deployment
+configuration in `wrangler.toml`. Editing `roast.md` changes the model, parameters and
+behaviour without touching code; it is bundled server-side, so the prompt is never
+exposed to the browser, and because the model is fixed there the client cannot steer
+the Worker onto another model.
 
 The streaming relay returns the upstream body directly
 (`new Response(upstream.body, { headers: { "Content-Type": "text/event-stream",
@@ -201,7 +205,7 @@ to better sustain a longer comedic roast when the material warrants it; the owne
 cost stays a consideration when picking the tier. Model slugs and prices change
 frequently and are verified at build
 against `openrouter.ai/models`; the slug lives in one place
-(`DEFAULT_MODEL` / `MODEL_ALLOWLIST`) and is treated as swappable. Provider
+(`model` in `worker/roast.md`) and is treated as swappable. Provider
 "latest"-style aliases (for example `~author/family-latest`) are moving targets
 and are not relied upon; an explicit slug is pinned. See the Open items for the
 default-slug decision.
@@ -272,12 +276,13 @@ Two classes of failure are presented differently:
 
 ```json
 {
-  "model": "<slug from MODEL_ALLOWLIST, optional; defaults to DEFAULT_MODEL>",
   "profile": "<pasted or extracted profile text>",
   "intensity": "<1 | 2 | 3 — the three intensity levels>",
   "exclude": "<optional string[]: titles the user marked as mis-attributed>"
 }
 ```
+
+The request does not carry a model: the Worker uses the `model` fixed in `roast.md`.
 
 `profile` is always text; uploaded files are converted to text in the browser
 before sending. `intensity` is one of three levels — `1` (Keep it factual), `2`
@@ -306,7 +311,7 @@ verbatim (`data: {…delta…}` lines terminated by `data: [DONE]`; SSE comment 
 beginning `:` are keep-alives the client ignores).
 
 On error: a JSON object with a stable shape, for example
-`{ "error": "rate_limited" | "too_large" | "bad_model" | "upstream_error",
+`{ "error": "rate_limited" | "too_large" | "bad_request" | "upstream_error",
 "message": "<text>" }`, with an appropriate status; the front end renders limits
 plainly and transient failures in character (see Error and failure handling).
 
@@ -317,7 +322,6 @@ Front-end build config, `src/config.ts` (public, committed):
 | Setting | Meaning |
 |---|---|
 | `WORKER_URL` | the deployed Worker endpoint the front end calls |
-| `DEFAULT_MODEL` | the model slug requested by default |
 | `MAX_INPUT_CHARS` | client-side input cap (mirrors the Worker's) |
 | `DEFAULT_INTENSITY` | default intensity level (default `3`, Show no mercy) |
 | `orcidLoginEnabled` | show the optional "Log in with ORCID" control (verified badge) |
@@ -329,7 +333,6 @@ Worker config, `worker/wrangler.toml` `[vars]` (committed, non-secret):
 |---|---|
 | `ALLOW_ORIGIN` | the exact Pages origin permitted by CORS |
 | `DAILY_LIMIT` | roasts per hashed IP per UTC day |
-| `MODEL_ALLOWLIST` | comma-separated slugs the Worker will forward |
 | `MAX_INPUT_CHARS` | authoritative input cap |
 | `OPENALEX_MAILTO` | contact for OpenAlex requests |
 | `RETRIEVE_CACHE_TTL` | seconds to cache a public-record retrieval in KV (default 24h) |
@@ -337,6 +340,12 @@ Worker config, `worker/wrangler.toml` `[vars]` (committed, non-secret):
 | `ORCID_CLIENT_ID` | the registered ORCID app's client ID (public by OAuth design) |
 | `ORCID_REDIRECT_URI` | the Worker's `/auth/orcid/callback` URL |
 | `APP_URL` | the Pages app URL the browser returns to after login |
+
+Model, generation parameters and prompt, `worker/roast.md` (committed, non-secret):
+the `model` slug, `maxOutputTokens`, optional `temperature` / `topP`,
+`defaultIntensity`, the `intensity` levels, and the prompt body. This one file is the
+owner-facing place to change the model, the parameters or the instructions; see The
+Worker.
 
 Worker secrets (not committed; `wrangler secret put`, or `worker/.dev.vars`
 locally): `OPENROUTER_API_KEY`, `IP_HASH_SALT`, `OPENALEX_API_KEY` (free key,
