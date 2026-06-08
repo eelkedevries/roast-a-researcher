@@ -37,6 +37,7 @@ export interface Env {
   OPENALEX_API_KEY?: string
   OPENALEX_MAILTO?: string
   RETRIEVE_CACHE_TTL?: string
+  RETRIEVE_DAILY_LIMIT?: string
   // ORCID login (033–035). The four vars are non-secret (wrangler.toml); the two
   // secrets are set with `wrangler secret put`. All optional: when CLIENT_ID /
   // CLIENT_SECRET / SESSION_SECRET are absent the Worker treats login as disabled.
@@ -124,8 +125,29 @@ function corsHeaders(origin: string): Record<string, string> {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
+    'X-Content-Type-Options': 'nosniff',
     Vary: 'Origin',
   }
+}
+
+// Per-IP daily budget for the retrieval/search endpoints — a separate, more generous
+// cap than the roast limit so these cannot be abused as an open scraping / API-key
+// burning proxy. Returns a 429 Response when over budget, or null to proceed.
+async function enforceRetrieveBudget(
+  request: Request,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response | null> {
+  const clientIp = request.headers.get('CF-Connecting-IP') ?? ''
+  if (!clientIp) return null
+  const limit = Number(env.RETRIEVE_DAILY_LIMIT) || 300
+  const key = `rt:${utcDate()}:${await hashIp(clientIp, env.IP_HASH_SALT)}`
+  const used = Number((await env.RATE_LIMIT.get(key)) ?? '0')
+  if (used >= limit) {
+    return jsonError('rate_limited', 'Daily lookup limit reached. Please try again tomorrow.', 429, allowOrigin)
+  }
+  await env.RATE_LIMIT.put(key, String(used + 1), { expirationTtl: secondsUntilEndOfUtcDay() })
+  return null
 }
 
 function jsonError(
@@ -156,9 +178,11 @@ function buildSystemPrompt(intensity: number, exclude: string[] = []): string {
         ...exclude.slice(0, 100).map((t) => `- ${t}`),
       ].join('\n')
     : ''
+  // Function replacers: a literal replacement string would interpret `$&`, `` $` ``,
+  // `$'`, `$$` — and user-supplied excluded titles can contain those.
   return promptTemplate
-    .replace('{{INTENSITY}}', intensityLine)
-    .replace('{{EXCLUDE}}', excludeBlock)
+    .replace('{{INTENSITY}}', () => intensityLine)
+    .replace('{{EXCLUDE}}', () => excludeBlock)
     .trim()
 }
 
@@ -390,6 +414,11 @@ async function handleRetrieve(
     }
   }
 
+  // Throttle the external-fetch path. Cache hits above are free; only calls that do
+  // real external work (or fresh:true) count against the per-IP daily budget.
+  const over = await enforceRetrieveBudget(request, env, allowOrigin)
+  if (over) return over
+
   let res: Response
   switch (source) {
     case 'github':
@@ -417,7 +446,10 @@ async function handleRetrieve(
   // Cache only successful retrievals; errors are never cached.
   if (res.status === 200) {
     const text = await res.clone().text()
-    const ttl = Number(env.RETRIEVE_CACHE_TTL) || 86400
+    // A transiently-degraded enrichment is cached only briefly so it self-heals,
+    // instead of poisoning the cache for a full day.
+    const degraded = res.headers.get('X-Enrichment-Degraded') === '1'
+    const ttl = degraded ? 300 : Number(env.RETRIEVE_CACHE_TTL) || 86400
     try {
       await env.RATE_LIMIT.put(cacheKey, text, { expirationTtl: ttl })
     } catch {
@@ -454,8 +486,11 @@ function isBlockedHost(hostname: string): boolean {
     if (a === 192 && b === 168) return true
     if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
   }
-  if (h === '::1') return true
+  if (h === '::1' || h === '::') return true // loopback / unspecified
   if (/^(fc|fd|fe80)/i.test(h)) return true // IPv6 unique-local / link-local
+  // IPv4-mapped (`::ffff:7f00:1`) and NAT64 (`64:ff9b::…`) embed an IPv4 in hex
+  // after URL normalisation, so block the prefixes rather than dotted forms.
+  if (/^(::ffff:(0:)?|64:ff9b:)/i.test(h)) return true
   return false
 }
 
@@ -535,6 +570,11 @@ function sameSiteLinks(html: string, baseUrl: string): string[] {
 // Best-effort fetch of a single page's HTML (null on any failure / non-HTML /
 // oversize). Used for the crawl's secondary pages; the seed uses detailed errors.
 async function fetchPageHtml(target: string): Promise<string | null> {
+  try {
+    if (isBlockedHost(new URL(target).hostname)) return null
+  } catch {
+    return null
+  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 6000)
   try {
@@ -547,6 +587,13 @@ async function fetchPageHtml(target: string): Promise<string | null> {
       signal: controller.signal,
     })
     if (!res.ok) return null
+    // Redirects are followed; re-check the final host so a public URL can't bounce
+    // us to an internal one (SSRF).
+    try {
+      if (isBlockedHost(new URL(res.url).hostname)) return null
+    } catch {
+      return null
+    }
     if (!/text\/html|application\/xhtml|text\/plain/i.test(res.headers.get('Content-Type') ?? '')) {
       return null
     }
@@ -595,6 +642,15 @@ async function retrieveWebsite(
     return jsonError('source_error', 'Could not reach that website (it may be slow or blocking requests).', 502, allowOrigin)
   }
   clearTimeout(timer)
+  // Redirects are followed; re-check the final host so a public URL can't bounce
+  // the crawl onto an internal address (SSRF).
+  try {
+    if (isBlockedHost(new URL(res.url).hostname)) {
+      return jsonError('invalid_identifier', 'That address cannot be fetched.', 400, allowOrigin)
+    }
+  } catch {
+    // A malformed final URL is treated as a fetch failure below.
+  }
   if (!res.ok) {
     return jsonError('source_error', `That website returned an error (${res.status}).`, 502, allowOrigin)
   }
@@ -989,6 +1045,9 @@ async function retrieveOrcid(
   let stats: OpenAlexResult['stats'] | undefined
   let charts: OpenAlexResult['charts']
   let oaPapers: ApiPaper[] = []
+  // True when enrichment failed transiently (HTTP/network/retrieval error), so the
+  // caller caches this degraded result only briefly instead of for a full day.
+  let degraded = false
   try {
     const oaHeaders = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
     const lookup = await fetch(
@@ -996,12 +1055,8 @@ async function retrieveOrcid(
       { headers: oaHeaders },
     )
     if (!lookup.ok) {
-      const detail = (await lookup.text().catch(() => '')).slice(0, 160)
-      const keyState = env.OPENALEX_API_KEY ? 'API key configured' : 'NO API key configured'
-      lines.push(
-        '',
-        `(OpenAlex enrichment unavailable: HTTP ${lookup.status} [${keyState}]${detail ? ` — ${detail}` : ''})`,
-      )
+      degraded = true
+      lines.push('', `(OpenAlex enrichment unavailable: HTTP ${lookup.status}.)`)
     } else {
       const data = (await lookup.json()) as { results?: Array<{ id?: string }> }
       const oaId = data.results?.[0]?.id ? parseOpenalexId(data.results[0].id) : null
@@ -1015,20 +1070,25 @@ async function retrieveOrcid(
           charts = oa.charts
           oaPapers = oa.papers
         } else {
+          degraded = true
           lines.push('', '(OpenAlex profile found but could not be retrieved.)')
         }
       }
     }
   } catch {
+    degraded = true
     lines.push('', '(OpenAlex enrichment skipped: network error.)')
   }
 
+  const responseHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...corsHeaders(allowOrigin),
+  }
+  // Out-of-band signal so handleRetrieve can under-cache a transient failure.
+  if (degraded) responseHeaders['X-Enrichment-Degraded'] = '1'
   return new Response(
     JSON.stringify({ text: lines.join('\n'), stats, charts, papers: [...orcidPapers, ...oaPapers] }),
-    {
-      status: 200,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders(allowOrigin) },
-    },
+    { status: 200, headers: responseHeaders },
   )
 }
 
@@ -1999,6 +2059,8 @@ async function handleSearch(
   if (!query) {
     return jsonError('bad_request', 'No search query supplied.', 400, allowOrigin)
   }
+  const over = await enforceRetrieveBudget(request, env, allowOrigin)
+  if (over) return over
   switch (source) {
     case 'github':
       return searchGithub(query, env, allowOrigin)
@@ -2067,13 +2129,7 @@ async function searchOpenalex(
     return jsonError('source_error', 'Could not reach OpenAlex (network).', 502, allowOrigin)
   }
   if (!res.ok) {
-    const body = (await res.text().catch(() => '')).slice(0, 200)
-    return jsonError(
-      'source_error',
-      `OpenAlex search failed (HTTP ${res.status})${body ? `: ${body}` : ''}`,
-      502,
-      allowOrigin,
-    )
+    return jsonError('source_error', `OpenAlex search failed (HTTP ${res.status}).`, 502, allowOrigin)
   }
   const data = (await res.json()) as {
     results?: Array<{
@@ -2223,6 +2279,8 @@ export default {
     // is hashed with a salt before use, so no raw IP is stored; the counter
     // resets daily via the KV TTL.
     const clientIp = request.headers.get('CF-Connecting-IP') ?? ''
+    let rlKey: string | null = null
+    let rlUsed = 0
     if (clientIp) {
       const dailyLimit = Number(env.DAILY_LIMIT) || 10
       const key = `rl:${utcDate()}:${await hashIp(clientIp, env.IP_HASH_SALT)}`
@@ -2235,9 +2293,10 @@ export default {
           allowOrigin,
         )
       }
-      await env.RATE_LIMIT.put(key, String(used + 1), {
-        expirationTtl: secondsUntilEndOfUtcDay(),
-      })
+      // Increment only after the upstream call succeeds (below), so a failed roast
+      // does not burn the user's daily quota.
+      rlKey = key
+      rlUsed = used
     }
 
     const upstreamBody = {
@@ -2275,6 +2334,13 @@ export default {
     // dedicated handling arrives in 005.
     if (!upstream.ok) {
       return jsonError('upstream_error', 'The roast could not be generated.', 502, allowOrigin)
+    }
+
+    // The roast is being generated: now count it against the daily quota.
+    if (rlKey) {
+      await env.RATE_LIMIT.put(rlKey, String(rlUsed + 1), {
+        expirationTtl: secondsUntilEndOfUtcDay(),
+      })
     }
 
     // Relay the OpenRouter SSE stream straight through, without buffering. Never

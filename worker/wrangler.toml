@@ -17,6 +17,10 @@ fallthrough = true
 ALLOW_ORIGIN = "https://eelkedevries.github.io"
 MAX_INPUT_CHARS = "40000"
 DAILY_LIMIT = "50"
+# Per-IP daily cap on the /retrieve and /search endpoints — separate from and more
+# generous than DAILY_LIMIT, since one roast legitimately issues several lookups.
+# Bounds open-proxy scraping and API-key burn. Default 300 when unset.
+RETRIEVE_DAILY_LIMIT = "300"
 # Contact for the OpenAlex "polite pool" — steadier per-contact rate limits than
 # the shared common pool (which a Cloudflare egress IP can exhaust). Any contact
 # string works; change it to a real inbox you prefer.
