@@ -32,7 +32,7 @@ function barChartSvg(items: BarItem[]): string {
       return (
         `<text x="0" y="${y + 15}" class="chart__label">${escapeXml(String(it.label))}</text>` +
         `<rect x="${labelW}" y="${y + 4}" width="${w}" height="${rowH - 8}" rx="2" class="chart__bar"></rect>` +
-        `<text x="${labelW + w + 4}" y="${y + 15}" class="chart__value">${it.value}</text>`
+        `<text x="${labelW + w + 4}" y="${y + 15}" class="chart__value">${Number(it.value)}</text>`
       )
     })
     .join('')

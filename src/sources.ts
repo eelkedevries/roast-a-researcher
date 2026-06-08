@@ -107,6 +107,8 @@ export async function searchSource(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ source, query }),
+      // Bound the wait so one hung source can't leave the 'Searching…' spinner stuck.
+      signal: AbortSignal.timeout(12000),
     })
     const data = (await response.json().catch(() => null)) as
       | { candidates?: Candidate[]; error?: string; message?: string }

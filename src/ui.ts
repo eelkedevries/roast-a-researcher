@@ -50,7 +50,8 @@ function recordUrl(detected: { source: SourceKind; id: string }): string {
     case 'semanticscholar':
       return `https://www.semanticscholar.org/author/${id}`
     case 'website':
-      return /^https?:\/\//i.test(id) ? id : `https://${id}`
+      // Any http(s) input already returned above, so this case is always a bare host.
+      return `https://${id}`
   }
 }
 
@@ -85,10 +86,10 @@ export function mountApp(root: HTMLElement): void {
 
           <div class="search-hero">
             <span class="search-hero__icon" aria-hidden="true">⌕</span>
-            <input id="search-query" class="search-hero__input" type="text" placeholder="Search by name…" />
+            <input id="search-query" class="search-hero__input" type="text" placeholder="Search by name…" aria-label="Search by name" />
             <button class="btn btn--primary search-hero__btn" id="search-btn" type="button">Search</button>
           </div>
-          <div id="search-results" class="search-results"></div>
+          <div id="search-results" class="search-results" aria-live="polite"></div>
 
           <details class="manual" id="manual">
             <summary class="manual__summary"><span class="manual__chevron" aria-hidden="true">›</span> Or add a personal website, links, or upload documents</summary>
@@ -106,7 +107,7 @@ export function mountApp(root: HTMLElement): void {
               <div class="manual__group">
                 <span class="micro-label">Paste text or upload documents <span class="micro-label__sub">PDF · Word · ODT · txt · md</span></span>
                 <div class="field" id="dropzone">
-                  <textarea id="profile" class="field__text" placeholder="${copy.inputPlaceholder}"></textarea>
+                  <textarea id="profile" class="field__text" placeholder="${copy.inputPlaceholder}" aria-label="Paste profile text"></textarea>
                   <input id="file" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" hidden />
                   <div class="field__bar">
                     <div class="field__actions">
@@ -360,6 +361,8 @@ export function mountApp(root: HTMLElement): void {
     root.querySelector('#reroast')?.classList.add('hidden')
   }
   const runSearch = (): void => {
+    roastAbort?.abort()
+    roastAbort = null
     resetInputs()
     void doSearch(searchQuery.value, searchResults, linksContainer)
   }
@@ -516,7 +519,7 @@ function addLinkRow(container: HTMLElement, value = ''): HTMLElement {
   row.className = 'link-row'
   row.innerHTML =
     '<div class="link-row__top">' +
-    '<input class="input link-row__input" type="url" placeholder="ORCID iD, a profile link, or any website URL" />' +
+    '<input class="input link-row__input" type="url" placeholder="ORCID iD, a profile link, or any website URL" aria-label="Profile link or website URL" />' +
     '<button class="link-row__remove" type="button" aria-label="Remove link">×</button></div>' +
     '<div class="link-row__meta" hidden>' +
     '<span class="link-row__tag"></span>' +
@@ -543,7 +546,7 @@ function addWebsiteRow(container: HTMLElement, value = ''): HTMLElement {
   row.dataset.website = '1'
   row.innerHTML =
     '<div class="link-row__top">' +
-    '<input class="input link-row__input" type="url" placeholder="https://your-personal-site.com (whole site is scraped)" />' +
+    '<input class="input link-row__input" type="url" placeholder="https://your-personal-site.com (whole site is scraped)" aria-label="Personal website URL" />' +
     '<button class="link-row__remove" type="button" aria-label="Remove website">×</button></div>' +
     '<div class="link-row__meta" hidden>' +
     '<span class="link-row__tag"></span>' +
@@ -751,6 +754,10 @@ function searchResultRow(
   const checkbox = document.createElement('input')
   checkbox.type = 'checkbox'
   checkbox.className = 'search__check'
+  checkbox.setAttribute(
+    'aria-label',
+    candidate.affiliation ? `Select ${candidate.name} (${candidate.affiliation})` : `Select ${candidate.name}`,
+  )
   const cbWrap = document.createElement('label')
   cbWrap.className = 'search__checkwrap'
   cbWrap.appendChild(checkbox)
@@ -1221,6 +1228,9 @@ function renderSubList(root: HTMLElement, secSel: string, listSel: string, items
 // the roast on re-roast. Persists across re-roasts, cleared on a new search.
 const excludedPaperKeys = new Set<string>()
 let lastRenderedPapers: Paper[] = []
+// The in-flight roast fetch, so a new Search/Sample can cancel a stale stream
+// before it overwrites the freshly-reset UI.
+let roastAbort: AbortController | null = null
 const paperKey = (title: string): string => title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 // Re-runs the current roast (set by mountApp); used by the Papers re-roast button.
 let triggerRoast: (() => void) | null = null
@@ -1428,6 +1438,8 @@ function renderStatsCard(root: HTMLElement, stats: SourceStats[]): void {
 
 // Zero-cost demo: render the saved fake researcher fully client-side.
 function showDemo(root: HTMLElement, textarea: HTMLTextAreaElement, output: HTMLElement): void {
+  roastAbort?.abort()
+  roastAbort = null
   textarea.value = demoResearcher.profile
   output.className = 'output'
   output.textContent = demoResearcher.roast
@@ -1466,6 +1478,11 @@ async function runRoast(
     placeholderOut(output, 'Roasting is not configured in this build yet (no Worker URL).')
     return
   }
+
+  // Cancel any still-streaming previous roast, then own the in-flight slot.
+  roastAbort?.abort()
+  const controller = new AbortController()
+  roastAbort = controller
 
   const started = performance.now()
   button.disabled = true
@@ -1522,6 +1539,7 @@ async function runRoast(
         intensity: selectedIntensity(),
         exclude,
       }),
+      signal: controller.signal,
     })
 
     if (!response.ok) {
@@ -1577,38 +1595,45 @@ async function runRoast(
       renderResult(root, res.obj as Personalia)
     }
 
-    for (;;) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data:')) continue
-        const payload = trimmed.slice(5).trim()
-        if (payload === '[DONE]') {
-          buffer = ''
-          break
-        }
-        try {
-          const json = JSON.parse(payload) as {
-            choices?: Array<{ delta?: { content?: string } }>
-            usage?: Usage
-            model?: string
+    // Suppress per-token re-announcements to screen readers; the completed roast
+    // is announced once when aria-busy clears (in the finally).
+    output.setAttribute('aria-busy', 'true')
+    try {
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data:')) continue
+          const payload = trimmed.slice(5).trim()
+          if (payload === '[DONE]') {
+            buffer = ''
+            break
           }
-          if (json.usage) usage = json.usage
-          if (json.model) usedModel = json.model
-          const delta = json.choices?.[0]?.delta?.content
-          if (delta) {
-            raw += delta
-            tryMeta()
-            if (metaDone) streamOut(output, raw.slice(roastStart).replace(/^\s+/, ''))
+          try {
+            const json = JSON.parse(payload) as {
+              choices?: Array<{ delta?: { content?: string } }>
+              usage?: Usage
+              model?: string
+            }
+            if (json.usage) usage = json.usage
+            if (json.model) usedModel = json.model
+            const delta = json.choices?.[0]?.delta?.content
+            if (delta) {
+              raw += delta
+              tryMeta()
+              if (metaDone) streamOut(output, raw.slice(roastStart).replace(/^\s+/, ''))
+            }
+          } catch {
+            // Partial or non-JSON line; wait for more data.
           }
-        } catch {
-          // Partial or non-JSON line; wait for more data.
         }
       }
+    } finally {
+      reader.cancel().catch(() => {})
     }
 
     if (!metaDone) {
@@ -1650,10 +1675,14 @@ async function runRoast(
         .querySelector('#inspect-papers')
         ?.classList.toggle('hidden', root.querySelector('#sec-papers')?.classList.contains('hidden') ?? true)
     }
-  } catch {
-    placeholderOut(output, randomError())
+  } catch (err) {
+    // An intentional cancel (new Search/Sample) must not flash an error over the
+    // freshly-reset UI; only real failures show the in-character error.
+    if ((err as { name?: string }).name !== 'AbortError') placeholderOut(output, randomError())
   } finally {
     button.disabled = false
+    output.setAttribute('aria-busy', 'false')
+    if (roastAbort === controller) roastAbort = null
   }
 }
 

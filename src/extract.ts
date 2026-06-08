@@ -36,20 +36,26 @@ async function extractPdf(file: File): Promise<string> {
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
   const data = new Uint8Array(await file.arrayBuffer())
-  const pdf = await pdfjs.getDocument({ data }).promise
-  const parts: string[] = []
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i)
-    const content = await page.getTextContent()
-    parts.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '))
+  const loadingTask = pdfjs.getDocument({ data })
+  try {
+    const pdf = await loadingTask.promise
+    const parts: string[] = []
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i)
+      const content = await page.getTextContent()
+      parts.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '))
+    }
+    const out = parts.join('\n').trim()
+    if (!out) {
+      throw new ScannedPdfError(
+        'No text found — this looks like a scanned or image-only PDF.',
+      )
+    }
+    return out
+  } finally {
+    // Release the pdf.js worker-thread allocation across repeated uploads.
+    await loadingTask.destroy()
   }
-  const out = parts.join('\n').trim()
-  if (!out) {
-    throw new ScannedPdfError(
-      'No text found — this looks like a scanned or image-only PDF.',
-    )
-  }
-  return out
 }
 
 // Opt-in OCR for scanned/image-only PDFs (032). Lazily loads tesseract.js and,
@@ -68,29 +74,38 @@ export async function ocrPdf(
   const Tesseract = (await import('tesseract.js')).default
 
   const data = new Uint8Array(await file.arrayBuffer())
-  const pdf = await pdfjs.getDocument({ data }).promise
-  const pages = Math.min(pdf.numPages, maxPages)
-  const parts: string[] = []
-  for (let i = 1; i <= pages; i++) {
-    onProgress?.(`OCR page ${i} of ${pages}…`)
-    const page = await pdf.getPage(i)
-    const viewport = page.getViewport({ scale: 2 })
-    const canvas = document.createElement('canvas')
-    canvas.width = viewport.width
-    canvas.height = viewport.height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) continue
-    await page.render({ canvas, canvasContext: ctx, viewport }).promise
-    const result = await Tesseract.recognize(canvas, 'eng')
-    parts.push(result.data.text)
-    canvas.width = 0
-    canvas.height = 0
+  // One OCR worker for the whole document — Tesseract.recognize() would otherwise
+  // spin up and tear down the WASM engine (and reload the language data) per page.
+  const worker = await Tesseract.createWorker('eng')
+  const loadingTask = pdfjs.getDocument({ data })
+  try {
+    const pdf = await loadingTask.promise
+    const pages = Math.min(pdf.numPages, maxPages)
+    const parts: string[] = []
+    for (let i = 1; i <= pages; i++) {
+      onProgress?.(`OCR page ${i} of ${pages}…`)
+      const page = await pdf.getPage(i)
+      const viewport = page.getViewport({ scale: 2 })
+      const canvas = document.createElement('canvas')
+      canvas.width = viewport.width
+      canvas.height = viewport.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) continue
+      await page.render({ canvas, canvasContext: ctx, viewport }).promise
+      const result = await worker.recognize(canvas)
+      parts.push(result.data.text)
+      canvas.width = 0
+      canvas.height = 0
+    }
+    const out = parts.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+    if (!out) {
+      throw new UnsupportedFileError('OCR found no readable text. Paste the text instead.')
+    }
+    return out
+  } finally {
+    await worker.terminate()
+    await loadingTask.destroy()
   }
-  const out = parts.join('\n').replace(/\n{3,}/g, '\n\n').trim()
-  if (!out) {
-    throw new UnsupportedFileError('OCR found no readable text. Paste the text instead.')
-  }
-  return out
 }
 
 async function extractDocx(file: File): Promise<string> {
