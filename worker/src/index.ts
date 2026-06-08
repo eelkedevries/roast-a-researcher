@@ -319,7 +319,7 @@ async function handleAuthCallback(request: Request, env: Env): Promise<Response>
   })
   let tokenRes: Response
   try {
-    tokenRes = await fetch(`${orcidBase(env)}/oauth/token`, {
+    tokenRes = await fetchWithTimeout(`${orcidBase(env)}/oauth/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -567,6 +567,57 @@ function sameSiteLinks(html: string, baseUrl: string): string[] {
   return out
 }
 
+// fetch() with a connect/headers deadline. The timer is cleared once the response
+// headers arrive (in `finally`, before the caller reads the body), so it bounds only
+// connection + time-to-first-byte — it never aborts a streaming body (e.g. the
+// OpenRouter relay) or a slow body read. A thrown AbortError is handled by each call
+// site's existing try/catch exactly like a network error.
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  ms = 12000,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Read a response body as text, hard-capping the byte count even when Content-Length
+// is absent or understated (chunked transfer) — closing the memory-spike vector on
+// arbitrary user-supplied website bodies. Returns { overflow: true } when the cap is
+// exceeded; a genuine read error throws (left to the caller to map).
+async function readTextCapped(
+  res: Response,
+  limit: number,
+): Promise<{ text: string } | { overflow: true }> {
+  if (Number(res.headers.get('Content-Length') ?? '0') > limit) return { overflow: true }
+  if (!res.body) return { text: await res.text() }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let total = 0
+  let out = ''
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > limit) {
+        await reader.cancel().catch(() => {})
+        return { overflow: true }
+      }
+      out += decoder.decode(value, { stream: true })
+    }
+    out += decoder.decode() // flush any trailing multi-byte sequence
+    return { text: out }
+  } finally {
+    reader.cancel().catch(() => {})
+  }
+}
+
 // Best-effort fetch of a single page's HTML (null on any failure / non-HTML /
 // oversize). Used for the crawl's secondary pages; the seed uses detailed errors.
 async function fetchPageHtml(target: string): Promise<string | null> {
@@ -597,8 +648,9 @@ async function fetchPageHtml(target: string): Promise<string | null> {
     if (!/text\/html|application\/xhtml|text\/plain/i.test(res.headers.get('Content-Type') ?? '')) {
       return null
     }
-    if (Number(res.headers.get('Content-Length') ?? '0') > 5_000_000) return null
-    return await res.text()
+    const r = await readTextCapped(res, 5_000_000)
+    if ('overflow' in r) return null
+    return r.text
   } catch {
     return null
   } finally {
@@ -657,12 +709,13 @@ async function retrieveWebsite(
   if (!/text\/html|application\/xhtml|text\/plain/i.test(res.headers.get('Content-Type') ?? '')) {
     return jsonError('unsupported', 'That link is not a readable web page (HTML expected). Paste the text instead.', 415, allowOrigin)
   }
-  if (Number(res.headers.get('Content-Length') ?? '0') > 5_000_000) {
-    return jsonError('too_large', 'That page is too large to fetch. Paste the relevant text instead.', 413, allowOrigin)
-  }
   let seedHtml: string | null
   try {
-    seedHtml = await res.text()
+    const r = await readTextCapped(res, 5_000_000)
+    if ('overflow' in r) {
+      return jsonError('too_large', 'That page is too large to fetch. Paste the relevant text instead.', 413, allowOrigin)
+    }
+    seedHtml = r.text
   } catch {
     return jsonError('source_error', 'Could not read that website.', 502, allowOrigin)
   }
@@ -770,7 +823,7 @@ async function retrieveGithub(
 
   let profileRes: Response
   try {
-    profileRes = await fetch(`https://api.github.com/users/${username}`, { headers })
+    profileRes = await fetchWithTimeout(`https://api.github.com/users/${username}`, { headers })
   } catch {
     return jsonError('source_error', 'Could not reach GitHub.', 502, allowOrigin)
   }
@@ -802,7 +855,7 @@ async function retrieveGithub(
     stargazers_count?: number
   }> = []
   try {
-    const reposRes = await fetch(
+    const reposRes = await fetchWithTimeout(
       `https://api.github.com/users/${username}/repos?sort=pushed&per_page=10`,
       { headers },
     )
@@ -894,7 +947,7 @@ async function retrieveOrcid(
 
   let res: Response
   try {
-    res = await fetch(`https://pub.orcid.org/v3.0/${id}/record`, { headers })
+    res = await fetchWithTimeout(`https://pub.orcid.org/v3.0/${id}/record`, { headers })
   } catch {
     return jsonError('source_error', 'Could not reach ORCID.', 502, allowOrigin)
   }
@@ -1050,7 +1103,7 @@ async function retrieveOrcid(
   let degraded = false
   try {
     const oaHeaders = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
-    const lookup = await fetch(
+    const lookup = await fetchWithTimeout(
       openalexUrl('authors', env, { filter: `orcid:${id}`, 'per-page': '1' }),
       { headers: oaHeaders },
     )
@@ -1151,7 +1204,7 @@ async function openalexGroupBy(
   headers: Record<string, string>,
 ): Promise<OpenAlexGroup[] | null> {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       openalexUrl('works', env, { filter: `author.id:${id}`, group_by: dimension }),
       { headers },
     )
@@ -1254,7 +1307,7 @@ async function openalexPapers(
   limit: number,
 ): Promise<ApiPaper[]> {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       openalexUrl('works', env, {
         filter: `author.id:${id}`,
         'per-page': String(limit),
@@ -1308,7 +1361,7 @@ async function openalexTopWorks(
   limit: number,
 ): Promise<OpenAlexRichWork[]> {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       openalexUrl('works', env, {
         filter: `author.id:${id}`,
         'per-page': String(limit),
@@ -1381,7 +1434,7 @@ async function openalexPIndex(
     const sid = w.sourceId?.match(/S\d+/)?.[0]
     if (!sid) continue
     try {
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         openalexUrl('works', env, {
           filter: `primary_location.source.id:${sid},publication_year:${w.year}`,
           group_by: 'cited_by_count',
@@ -1418,7 +1471,7 @@ async function semanticScholarByDoi(dois: string[]): Promise<Map<string, S2Enric
   const out = new Map<string, S2Enrichment>()
   if (!dois.length) return out
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       'https://api.semanticscholar.org/graph/v1/paper/batch?fields=externalIds,influentialCitationCount,tldr',
       {
         method: 'POST',
@@ -1466,7 +1519,7 @@ async function openalexCoauthors(
   limit: number,
 ): Promise<{ coauthors: Coauthor[]; countries: OpenAlexGroup[] }> {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       openalexUrl('works', env, {
         filter: `author.id:${id}`,
         'per-page': '200',
@@ -1572,7 +1625,7 @@ async function buildOpenalex(
 ): Promise<OpenAlexResult | null> {
   let authorRes: Response
   try {
-    authorRes = await fetch(openalexUrl(`authors/${id}`, env), { headers })
+    authorRes = await fetchWithTimeout(openalexUrl(`authors/${id}`, env), { headers })
   } catch {
     return null
   }
@@ -1592,7 +1645,7 @@ async function buildOpenalex(
   // metrics computation (016) and enrichment (019).
   let works: OpenAlexWork[] = []
   try {
-    const worksRes = await fetch(
+    const worksRes = await fetchWithTimeout(
       openalexUrl('works', env, {
         filter: `author.id:${id}`,
         'per-page': '200',
@@ -1800,7 +1853,7 @@ async function retrieveDblp(input: string, allowOrigin: string): Promise<Respons
   const headers = { Accept: 'application/xml', 'User-Agent': 'roast-a-researcher' }
   let res: Response
   try {
-    res = await fetch(`https://dblp.org/pid/${pid}.xml`, { headers })
+    res = await fetchWithTimeout(`https://dblp.org/pid/${pid}.xml`, { headers })
   } catch {
     return jsonError('source_error', 'Could not reach DBLP.', 502, allowOrigin)
   }
@@ -1857,7 +1910,7 @@ async function searchDblp(query: string, allowOrigin: string): Promise<Response>
   const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
   let res: Response
   try {
-    res = await fetch(
+    res = await fetchWithTimeout(
       `https://dblp.org/search/author/api?q=${encodeURIComponent(query)}&format=json&h=5`,
       { headers },
     )
@@ -1890,7 +1943,7 @@ async function retrieveSemanticScholar(input: string, allowOrigin: string): Prom
   const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
   let res: Response
   try {
-    res = await fetch(
+    res = await fetchWithTimeout(
       `https://api.semanticscholar.org/graph/v1/author/${authorId}?fields=name,affiliations,paperCount,citationCount,hIndex,papers.title,papers.year,papers.citationCount,papers.venue,papers.externalIds,papers.tldr`,
       { headers },
     )
@@ -1967,7 +2020,7 @@ async function searchSemanticScholar(query: string, allowOrigin: string): Promis
   const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
   let res: Response
   try {
-    res = await fetch(
+    res = await fetchWithTimeout(
       `https://api.semanticscholar.org/graph/v1/author/search?query=${encodeURIComponent(query)}&fields=name,affiliations,paperCount,hIndex&limit=5`,
       { headers },
     )
@@ -2089,7 +2142,7 @@ async function searchGithub(
   if (env.GITHUB_TOKEN) headers['Authorization'] = `Bearer ${env.GITHUB_TOKEN}`
   let res: Response
   try {
-    res = await fetch(
+    res = await fetchWithTimeout(
       `https://api.github.com/search/users?q=${encodeURIComponent(query)}&per_page=5`,
       { headers },
     )
@@ -2117,7 +2170,7 @@ async function searchOpenalex(
   const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
   let res: Response
   try {
-    res = await fetch(
+    res = await fetchWithTimeout(
       openalexUrl('authors', env, {
         search: query,
         'per-page': '5',
@@ -2159,7 +2212,7 @@ async function searchOrcid(query: string, allowOrigin: string): Promise<Response
   const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
   let res: Response
   try {
-    res = await fetch(
+    res = await fetchWithTimeout(
       `https://pub.orcid.org/v3.0/expanded-search/?q=${encodeURIComponent(query)}&rows=5`,
       { headers },
     )
@@ -2318,14 +2371,14 @@ export default {
 
     let upstream: Response
     try {
-      upstream = await fetch(OPENROUTER_URL, {
+      upstream = await fetchWithTimeout(OPENROUTER_URL, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(upstreamBody),
-      })
+      }, 15000)
     } catch {
       return jsonError('upstream_error', 'The roast could not be generated.', 502, allowOrigin)
     }
