@@ -41,15 +41,16 @@ and a `format` key.
 
 ### Making roasts funnier (model routing, formats, exemplars)
 
-The humour features are **opt-in**: with the shipped defaults every routing bucket
-is the base `model`, the format is `straight`, and exemplars are off — so behaviour
-and cost are unchanged until you change them.
+Current shipped routing (after the June 2026 pilot — see `docs/evaluation.md`): mild
+tier → `google/gemini-2.5-flash`; stronger tiers + regenerate → `anthropic/claude-sonnet-4.5`
+(funnier, eval-validated, grounding intact); fallback → flash. The default format is
+`straight` and exemplars are off. Formats and exemplars remain opt-in.
 
-- **Stronger model for stronger tiers.** Set `models.quality` to a stronger model
-  (e.g. `anthropic/claude-sonnet-4.5`) and `routing.byIntensity` already sends levels
-  2–3 to `quality`. Optionally set `models.lowCost` to `google/gemini-2.5-flash-lite`
-  for the mild tier. Confirm the humour gain (and the cost) first with the eval
-  harness — see `docs/evaluation.md`. Verified prices are listed in
+- **Model routing.** Edit `models.quality` / `models.lowCost` and `routing` to change
+  it; revert to the original single model by setting both buckets to
+  `google/gemini-2.5-flash`. `google/gemini-2.5-pro` is **not** used in production —
+  as a reasoning model it returned empty content in the pilot (kept as an A/B slot
+  only). Confirm any change with the eval harness; verified prices are in
   `docs/spend-and-limits.md`.
 - **Formats.** The front-end "Format" selector sends a `format` key; the directive in
   `roast.md` shapes the roast's frame (Reviewer 2 report, desk-rejection, tenure

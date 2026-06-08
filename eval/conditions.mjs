@@ -22,7 +22,7 @@
 export const conditions = [
   {
     id: 'baseline',
-    label: 'Baseline: current model, straight roast',
+    label: 'Baseline: base model (gemini-2.5-flash), straight roast',
     model: 'base',
     format: 'straight',
     exemplars: false,
@@ -31,9 +31,9 @@ export const conditions = [
     temperature: 1.0,
   },
   {
-    id: 'stronger_model',
-    label: 'Stronger model (Claude Sonnet 4.5), straight roast',
-    model: 'anthropic/claude-sonnet-4.5',
+    id: 'quality_model',
+    label: 'Quality bucket (claude-sonnet-4.5), straight roast',
+    model: 'quality',
     format: 'straight',
     exemplars: false,
     candidates: 1,
@@ -41,9 +41,9 @@ export const conditions = [
     temperature: 1.0,
   },
   {
-    id: 'stronger_format',
-    label: 'Stronger model + Reviewer 2 format',
-    model: 'anthropic/claude-sonnet-4.5',
+    id: 'quality_format',
+    label: 'Quality model + Reviewer 2 format',
+    model: 'quality',
     format: 'reviewer2',
     exemplars: false,
     candidates: 1,
@@ -52,8 +52,8 @@ export const conditions = [
   },
   {
     id: 'exemplar_on',
-    label: 'Exemplar on (current model)',
-    model: 'base',
+    label: 'Exemplar on (quality model)',
+    model: 'quality',
     format: 'straight',
     exemplars: true,
     candidates: 1,
@@ -62,7 +62,7 @@ export const conditions = [
   },
   {
     id: 'best_of_3',
-    label: 'Best-of-3 (current model), human-selected',
+    label: 'Best-of-3 (base model), human-selected',
     model: 'base',
     format: 'straight',
     exemplars: false,

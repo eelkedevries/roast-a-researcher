@@ -56,6 +56,29 @@ already routes levels 2–3 to `quality`) and redeploy. If a format or exemplar 
 keep it as a preset / set `exemplars.enabled: true`. Keep the price table in
 `eval/prices.json` and `docs/spend-and-limits.md` current.
 
+## Pilot findings (June 2026)
+
+A full real run (80 generations, ~$0.60) across the conditions, followed by an
+automated mechanical review (grounding/safety/contract — not funniness):
+
+- **Gemini 2.5 Pro is unusable here.** As a reasoning model it returned *empty*
+  visible content (all tokens spent on hidden reasoning) and never produced the
+  JSON+`===ROAST===` contract. It is kept only as an experimental A/B slot, flagged
+  in `roast.md`; production is **not** routed to it.
+- **Claude Sonnet 4.5 is the quality pick.** Sharper, more single-angle roasts than
+  the flash baseline, with **0/10 grounding fabrications** and all naming the
+  researcher. It wraps the leading JSON in ```code fences```; the front-end parser
+  was made marker-preferring so this renders cleanly (personalia still parse).
+- Residual issues fixed/handled: stray markdown emphasis (`*word*`) and a rare
+  foreign-glyph artifact → added a plain-prose instruction and strip markdown
+  asterisks at the display layer. One similar-title-rule slip and one borderline
+  "fraudster" simile in 10 — low-rate adherence slips; all content rules remain in
+  the prompt unchanged. Re-run the eval after prompt changes to confirm.
+
+Production therefore routes mild → `google/gemini-2.5-flash`, stronger tiers +
+regenerate → `anthropic/claude-sonnet-4.5`, fallback → flash. Revert any of this with
+one line in `roast.md`.
+
 ## Cost and operational notes
 
 - Cost is an **estimate** (price table × token counts), not a bill. Compare at

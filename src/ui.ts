@@ -1116,6 +1116,19 @@ function selectedFormat(): string {
   return document.querySelector<HTMLSelectElement>('#format-in')?.value || defaultFormat
 }
 
+// The roast text. Prefer everything after the ===ROAST=== marker, which is robust to
+// models that wrap the leading JSON in ```code fences``` before the marker (e.g.
+// Claude); fall back to the parser-computed roastStart when the marker is absent.
+function roastBody(raw: string, roastStart: number): string {
+  const MARK = '===ROAST==='
+  const mk = raw.indexOf(MARK)
+  const body = mk >= 0 ? raw.slice(mk + MARK.length) : raw.slice(roastStart)
+  // The roast is rendered as plain text; strip any stray markdown emphasis asterisks
+  // some models (e.g. Claude) add despite the plain-prose instruction, so they don't
+  // show as literal "*". (Asterisks have no legitimate place in roast prose.)
+  return body.replace(/^\s+/, '').replace(/\*+/g, '')
+}
+
 function placeholderOut(output: HTMLElement, text: string): void {
   output.className = 'output placeholder'
   output.textContent = text
@@ -1644,7 +1657,7 @@ async function runRoast(
             if (delta) {
               raw += delta
               tryMeta()
-              if (metaDone) streamOut(output, raw.slice(roastStart).replace(/^\s+/, ''))
+              if (metaDone) streamOut(output, roastBody(raw, roastStart))
             }
           } catch {
             // Partial or non-JSON line; wait for more data.
@@ -1667,7 +1680,7 @@ async function runRoast(
         renderResult(root, null)
       }
     }
-    const roast = raw.slice(roastStart).replace(/^\s+/, '').trim()
+    const roast = roastBody(raw, roastStart).trim()
     if (!roast) {
       placeholderOut(output, randomError())
     } else {

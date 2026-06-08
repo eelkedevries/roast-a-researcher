@@ -57,9 +57,14 @@ per-IP cap.
 ## 4. Model choice (per-roast cost)
 
 The per-roast cost is dominated by the model, configured in `worker/roast.md`
-(`model` and the `models`/`routing` buckets). The default keeps every tier on
-`google/gemini-2.5-flash`. Verified OpenRouter prices (June 2026, USD per 1M tokens,
-input/output) — keep this table and `eval/prices.json` in step when prices change:
+(`model` and the `models`/`routing` buckets). After the June 2026 humour pilot,
+production routes the mild tier to `google/gemini-2.5-flash` and the stronger tiers +
+regenerate to `anthropic/claude-sonnet-4.5` (funnier; see `docs/evaluation.md`). Since
+the default intensity is the strongest tier, most roasts use Sonnet — a higher
+per-roast cost, still bounded by the per-IP daily cap and the OpenRouter per-key
+budget. Revert to flash-only with one line in `roast.md`. Verified OpenRouter prices
+(June 2026, USD per 1M tokens, input/output) — keep this table and `eval/prices.json`
+in step when prices change:
 
 | Model | Input | Output |
 |---|---|---|

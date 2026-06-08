@@ -145,14 +145,26 @@ test('production roast.md preserves grounding + safety markers after assembly', 
   assert.ok(!out.includes('{{'))
 })
 
-// With the SHIPPED defaults, every routing bucket resolves to the base model, so the
-// default config changes neither the model nor the cost.
-test('shipped roast.md default routing preserves the base model for all tiers', () => {
+// The shipped roast.md routing resolves each tier to the configured bucket model,
+// and every routed model exists in the price table (so cost is always estimable).
+test('shipped roast.md routing matches its configured buckets and known prices', () => {
   const src = readFileSync(fileURLToPath(new URL('../roast.md', import.meta.url)), 'utf8')
   const cfg = parseYaml(src.match(/^---\n([\s\S]*?)\n---/)[1])
-  for (const intensity of [1, 2, 3]) {
-    assert.equal(selectModel(cfg, cfg.model, { intensity }).model, cfg.model)
+  const prices = JSON.parse(
+    readFileSync(fileURLToPath(new URL('../../eval/prices.json', import.meta.url)), 'utf8'),
+  )
+  const bucketModel = (b) => cfg.models[b]
+  // byIntensity maps each level to its bucket's model
+  for (const [lvl, bucket] of Object.entries(cfg.routing.byIntensity)) {
+    assert.equal(selectModel(cfg, cfg.model, { intensity: Number(lvl) }).model, bucketModel(bucket))
   }
-  assert.equal(selectModel(cfg, cfg.model, { intensity: 3, regenerate: true }).model, cfg.model)
-  assert.equal(fallbackModel(cfg, cfg.model), cfg.model)
+  // regenerate + fallback resolve to their buckets
+  assert.equal(
+    selectModel(cfg, cfg.model, { intensity: 1, regenerate: true }).model,
+    bucketModel(cfg.routing.regenerate),
+  )
+  assert.equal(fallbackModel(cfg, cfg.model), bucketModel(cfg.routing.fallback))
+  // every model the worker can route to (base + buckets) has a price entry
+  const routed = new Set([cfg.model, ...Object.values(cfg.models)])
+  for (const m of routed) assert.ok(prices[m], `price table missing ${m}`)
 })
