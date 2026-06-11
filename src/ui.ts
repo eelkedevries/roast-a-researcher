@@ -633,10 +633,14 @@ function updateLinkRow(row: HTMLElement): void {
           retrieve.className = 'link-row__retrieve is-ok'
           retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
           retrieve.title = ''
+          reason.textContent = ''
         } else {
           retrieve.className = 'link-row__retrieve is-bad'
           retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
+          // Shown inline (not only as a hover tooltip) so the reason is visible
+          // on touch devices and to screen readers.
           retrieve.title = res.reason ?? 'Retrieval failed.'
+          reason.textContent = res.reason ?? 'Retrieval failed.'
         }
       })
     }, 500),
@@ -933,7 +937,11 @@ async function validateLinks(
   root: HTMLElement,
   sources: Set<string>,
 ): Promise<{ texts: string[]; stats: SourceStats[]; charts: ChartData[]; papers: ApiPaper[] }> {
-  type Entry = { retrieve: HTMLElement; detected: { source: SourceKind; id: string } }
+  type Entry = {
+    retrieve: HTMLElement
+    reason: HTMLElement
+    detected: { source: SourceKind; id: string }
+  }
   const entries: Entry[] = []
   for (const row of Array.from(root.querySelectorAll<HTMLElement>('.link-row'))) {
     const input = row.querySelector<HTMLInputElement>('.link-row__input')
@@ -963,7 +971,7 @@ async function validateLinks(
     inspect.href = recordUrl(detected)
     meta.hidden = false
     row.dataset.retrieved = value
-    entries.push({ retrieve, detected })
+    entries.push({ retrieve, reason, detected })
   }
 
   // Retrieve in parallel where possible: non-OpenAlex rows are independent, so
@@ -974,7 +982,7 @@ async function validateLinks(
   const results = new Map<Entry, Fetched>()
   const coveredOpenAlex = new Set<string>()
   const fetchEntry = async (entry: Entry): Promise<void> => {
-    const { retrieve, detected } = entry
+    const { retrieve, reason, detected } = entry
     retrieve.className = 'link-row__retrieve is-loading'
     retrieve.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
     const res = await retrieveSource(config.workerUrl, detected.source, detected.id)
@@ -989,7 +997,10 @@ async function validateLinks(
     } else {
       retrieve.className = 'link-row__retrieve is-bad'
       retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
+      // Shown inline (not only as a hover tooltip) so the reason is visible on
+      // touch devices and to screen readers.
       retrieve.title = res.reason ?? 'Retrieval failed.'
+      reason.textContent = res.reason ?? 'Retrieval failed.'
     }
   }
 

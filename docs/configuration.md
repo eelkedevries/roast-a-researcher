@@ -70,7 +70,7 @@ tier → `google/gemini-2.5-flash`; stronger tiers + regenerate → `anthropic/c
 | `MAX_INPUT_CHARS` | authoritative input cap |
 | `DAILY_LIMIT` | roasts per hashed IP per UTC day |
 | `RETRIEVE_DAILY_LIMIT` | `/retrieve` + `/search` calls per hashed IP per UTC day (default 300) |
-| `OPENALEX_MAILTO` | contact address sent to OpenAlex (polite pool) |
+| `OPENALEX_MAILTO` | legacy OpenAlex contact hint (the "polite pool" is retired; harmless to keep) |
 | `RETRIEVE_CACHE_TTL` | seconds to cache a public-record retrieval in KV (default 24h) |
 | `ORCID_OAUTH_BASE` | ORCID OAuth host (`https://orcid.org` or the sandbox) |
 | `ORCID_CLIENT_ID` | the registered ORCID app's client ID (public by OAuth design) |
@@ -92,6 +92,7 @@ Set with `wrangler secret put`, or `worker/.dev.vars` for local `wrangler dev`
 | `OPENALEX_API_KEY` | the (free) OpenAlex key — **required for all OpenAlex features**: OpenAlex now uses usage-based pricing and rejects anonymous requests with HTTP 429 |
 | `GITHUB_TOKEN` | optional; raises the GitHub API rate limit for profile retrieval |
 | `ORCID_TOKEN` | optional; a read-public token that raises ORCID API rate limits |
+| `S2_API_KEY` | optional; a (free) Semantic Scholar key — the shared unauthenticated pool is small, so set this if Semantic Scholar starts returning 429s |
 | `ORCID_CLIENT_SECRET` | optional; enables "Log in with ORCID" (login is disabled when unset) |
 | `SESSION_SECRET` | optional; signs the session token for ORCID login (login is disabled when unset) |
 

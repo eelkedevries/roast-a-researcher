@@ -21,9 +21,9 @@ DAILY_LIMIT = "50"
 # generous than DAILY_LIMIT, since one roast legitimately issues several lookups.
 # Bounds open-proxy scraping and API-key burn. Default 300 when unset.
 RETRIEVE_DAILY_LIMIT = "300"
-# Contact for the OpenAlex "polite pool" — steadier per-contact rate limits than
-# the shared common pool (which a Cloudflare egress IP can exhaust). Any contact
-# string works; change it to a real inbox you prefer.
+# Legacy OpenAlex contact hint. The "polite pool" it once selected is retired —
+# access now runs on the (free, required) OPENALEX_API_KEY secret — but the
+# param remains harmless, so it is kept as a contact courtesy.
 OPENALEX_MAILTO = "eelkedevries@users.noreply.github.com"
 # How long (seconds) to cache a public-record retrieval in KV (018). Public
 # records change slowly; this caps repeat external API calls and cost. The roast

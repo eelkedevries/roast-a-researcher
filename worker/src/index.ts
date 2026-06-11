@@ -49,6 +49,7 @@ export interface Env {
   ORCID_TOKEN?: string
   OPENALEX_API_KEY?: string
   OPENALEX_MAILTO?: string
+  S2_API_KEY?: string
   RETRIEVE_CACHE_TTL?: string
   RETRIEVE_DAILY_LIMIT?: string
   // ORCID login (033–035). The four vars are non-secret (wrangler.toml); the two
@@ -467,7 +468,7 @@ async function handleRetrieve(
       res = await retrieveOpenalex(id, env, allowOrigin)
       break
     case 'semanticscholar':
-      res = await retrieveSemanticScholar(id, allowOrigin)
+      res = await retrieveSemanticScholar(id, env, allowOrigin)
       break
     case 'dblp':
       res = await retrieveDblp(id, allowOrigin)
@@ -873,7 +874,8 @@ async function retrieveGithub(
   if (profileRes.status === 404) {
     return jsonError('not_found', 'No GitHub user with that name.', 404, allowOrigin)
   }
-  if (profileRes.status === 403) {
+  // GitHub signals rate limiting as 403 (secondary limits) or 429 (primary).
+  if (profileRes.status === 403 || profileRes.status === 429) {
     return jsonError('rate_limited', 'GitHub rate limit reached. Try again later.', 429, allowOrigin)
   }
   if (!profileRes.ok) {
@@ -1204,12 +1206,24 @@ function parseOpenalexId(input: string): string | null {
 function openalexUrl(path: string, env: Env, params: Record<string, string> = {}): string {
   const url = new URL(`https://api.openalex.org/${path}`)
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
-  // OpenAlex now uses usage-based pricing: the (free) API key carries the $1/day
-  // budget and is required — without it requests return HTTP 429. The `mailto` is
-  // a harmless legacy contact hint.
+  // OpenAlex uses usage-based pricing: the (free) API key carries the $1/day
+  // budget and is required — without it requests are rejected. The `mailto`
+  // param is a harmless leftover from the retired "polite pool" era.
   if (env.OPENALEX_MAILTO) url.searchParams.set('mailto', env.OPENALEX_MAILTO)
   if (env.OPENALEX_API_KEY) url.searchParams.set('api_key', env.OPENALEX_API_KEY)
   return url.toString()
+}
+
+// Semantic Scholar request headers. The optional S2_API_KEY raises the rate
+// limit to a per-key allowance — the shared unauthenticated pool is small and
+// often throttled, so set the (free) key when 429s appear.
+function s2Headers(env: Env): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'User-Agent': 'roast-a-researcher',
+  }
+  if (env.S2_API_KEY) headers['x-api-key'] = env.S2_API_KEY
+  return headers
 }
 
 interface OpenAlexWork {
@@ -1510,7 +1524,10 @@ interface S2Enrichment {
 // Semantic Scholar enrichment (023): keyless batch lookup of the top works' DOIs
 // for influential-citation counts and TLDR summaries. Returns a map keyed by bare
 // lowercase DOI; degrades to an empty map on any failure or rate limit.
-async function semanticScholarByDoi(dois: string[]): Promise<Map<string, S2Enrichment>> {
+async function semanticScholarByDoi(
+  dois: string[],
+  env: Env,
+): Promise<Map<string, S2Enrichment>> {
   const out = new Map<string, S2Enrichment>()
   if (!dois.length) return out
   try {
@@ -1518,10 +1535,7 @@ async function semanticScholarByDoi(dois: string[]): Promise<Map<string, S2Enric
       'https://api.semanticscholar.org/graph/v1/paper/batch?fields=externalIds,influentialCitationCount,tldr',
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'roast-a-researcher',
-        },
+        headers: { ...s2Headers(env), 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: dois.map((d) => `DOI:${d}`) }),
       },
     )
@@ -1790,6 +1804,7 @@ async function buildOpenalex(
   // Semantic Scholar enrichment (023) for the top works that carry a DOI.
   const s2 = await semanticScholarByDoi(
     topWorks.map((w) => w.doi).filter((d): d is string => !!d),
+    env,
   )
 
   if (topWorks.length) {
@@ -1979,12 +1994,16 @@ async function searchDblp(query: string, allowOrigin: string): Promise<Response>
 }
 
 // Semantic Scholar as a first-class source (028): author profile + top papers.
-async function retrieveSemanticScholar(input: string, allowOrigin: string): Promise<Response> {
+async function retrieveSemanticScholar(
+  input: string,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
   const authorId = input.match(/\d{3,}/)?.[0]
   if (!authorId) {
     return jsonError('invalid_identifier', 'That is not a valid Semantic Scholar author id.', 400, allowOrigin)
   }
-  const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
+  const headers = s2Headers(env)
   let res: Response
   try {
     res = await fetchWithTimeout(
@@ -2060,8 +2079,12 @@ async function retrieveSemanticScholar(input: string, allowOrigin: string): Prom
   })
 }
 
-async function searchSemanticScholar(query: string, allowOrigin: string): Promise<Response> {
-  const headers = { Accept: 'application/json', 'User-Agent': 'roast-a-researcher' }
+async function searchSemanticScholar(
+  query: string,
+  env: Env,
+  allowOrigin: string,
+): Promise<Response> {
+  const headers = s2Headers(env)
   let res: Response
   try {
     res = await fetchWithTimeout(
@@ -2166,7 +2189,7 @@ async function handleSearch(
     case 'orcid':
       return searchOrcid(query, allowOrigin)
     case 'semanticscholar':
-      return searchSemanticScholar(query, allowOrigin)
+      return searchSemanticScholar(query, env, allowOrigin)
     case 'dblp':
       return searchDblp(query, allowOrigin)
     default:
@@ -2193,7 +2216,8 @@ async function searchGithub(
   } catch {
     return jsonError('source_error', 'Could not reach GitHub.', 502, allowOrigin)
   }
-  if (res.status === 403) {
+  // GitHub signals rate limiting as 403 (secondary limits) or 429 (primary).
+  if (res.status === 403 || res.status === 429) {
     return jsonError('rate_limited', 'GitHub rate limit reached. Try again later.', 429, allowOrigin)
   }
   if (!res.ok) {
@@ -2416,8 +2440,10 @@ export default {
         // temperature / top_p are optional knobs in roast.md: only sent when set.
         ...(MODEL_CONFIG.temperature != null ? { temperature: MODEL_CONFIG.temperature } : {}),
         ...(MODEL_CONFIG.topP != null ? { top_p: MODEL_CONFIG.topP } : {}),
-        // Ask OpenRouter to append a usage block (token counts + cost in USD) to the
-        // final stream chunk, surfaced in the front-end run metadata.
+        // OpenRouter now appends the usage block (token counts + cost in USD) to
+        // the final stream chunk automatically; the explicit flag is kept for
+        // compatibility with older gateway behaviour and is harmless if ignored.
+        // The front-end run metadata reads it from that final chunk.
         usage: { include: true },
         messages,
       })
@@ -2429,6 +2455,9 @@ export default {
           headers: {
             Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
             'Content-Type': 'application/json',
+            // Optional OpenRouter attribution headers identifying this app.
+            'HTTP-Referer': env.APP_URL || env.ALLOW_ORIGIN || '',
+            'X-Title': 'Roast a Researcher',
           },
           body: orBody(modelSlug),
         },

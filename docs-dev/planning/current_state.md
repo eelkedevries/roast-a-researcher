@@ -90,7 +90,8 @@ This file records what *is* (current reality). The binding design canon is `docs
 ## Key decisions
 
 - Stack: Vite + TypeScript, building to `dist/`.
-- Verify command `npm run check` runs `tsc --noEmit && vite build`.
+- Verify command `npm run check` runs the `roast.md` config check, `tsc --noEmit`
+  for both the front end and the Worker (`worker/tsconfig.json`), and `vite build`.
 - Site served under base path `/roast-a-researcher/` (GitHub Pages).
 - Front-end UI copy and public settings (`WORKER_URL`, `DEFAULT_MODEL`,
   `MAX_INPUT_CHARS`, `DEFAULT_INTENSITY`) live in `src/config.ts`; no secret ever

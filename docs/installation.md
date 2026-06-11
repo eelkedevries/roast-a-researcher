@@ -4,7 +4,7 @@ How to set up the project locally for development.
 
 ## Prerequisites
 
-- Node.js 22 or later (with npm). CI runs on Node 22.
+- Node.js 22 or later (with npm). CI runs on Node 24, the active LTS.
 
 ## Install
 
