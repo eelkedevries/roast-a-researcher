@@ -538,6 +538,13 @@ function decodeEntities(s: string): string {
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#0?39;|&apos;/gi, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => {
+      try {
+        return String.fromCodePoint(parseInt(h, 16))
+      } catch {
+        return ''
+      }
+    })
     .replace(/&#(\d+);/g, (_, d) => {
       try {
         return String.fromCodePoint(Number(d))
@@ -1867,6 +1874,7 @@ function unescapeXml(s: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
     .trim()
 }
@@ -2307,12 +2315,11 @@ export default {
     }
 
     // Structured-source retrieval (ORCID/OpenAlex/GitHub) is served on /retrieve.
-    const pathname = new URL(request.url).pathname
-    if (pathname.endsWith('/retrieve')) {
+    if (path.endsWith('/retrieve')) {
       return handleRetrieve(request, env, allowOrigin)
     }
     // Search a source by name, returning candidate {id, name, affiliation} (017).
-    if (pathname.endsWith('/search')) {
+    if (path.endsWith('/search')) {
       return handleSearch(request, env, allowOrigin)
     }
 

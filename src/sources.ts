@@ -133,6 +133,9 @@ export async function retrieveSource(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ source, id, fresh }),
+      // Generous bound (a full-site crawl can legitimately take ~30s), so a hung
+      // connection still resolves to a visible ✗ instead of spinning forever.
+      signal: AbortSignal.timeout(60000),
     })
     const data = (await response.json().catch(() => null)) as
       | { text?: string; stats?: SourceStats; charts?: ChartData; papers?: ApiPaper[]; error?: string; message?: string }

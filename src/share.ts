@@ -43,8 +43,12 @@ function renderPng(text: string, title: string): Promise<Blob | null> {
   const lines = wrapText(ctx, text, width - padding * 2)
   const height = padding * 2 + titleGap + lines.length * lineHeight
 
-  canvas.width = width
-  canvas.height = height
+  // Render at 2× so the PNG stays crisp on high-DPI screens. Resizing the canvas
+  // resets the context state, so the scale (and fonts) are applied afterwards.
+  const scale = 2
+  canvas.width = width * scale
+  canvas.height = height * scale
+  ctx.scale(scale, scale)
 
   ctx.fillStyle = '#1a1a1a'
   ctx.fillRect(0, 0, width, height)

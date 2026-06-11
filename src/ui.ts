@@ -964,23 +964,15 @@ async function validateLinks(
     entries.push({ retrieve, detected })
   }
 
-  // OpenAlex rows last, so an ORCID's embedded OpenAlex can cover them.
-  entries.sort(
-    (a, b) =>
-      (a.detected.source === 'openalex' ? 1 : 0) - (b.detected.source === 'openalex' ? 1 : 0),
-  )
-
-  const collected: Array<{ text: string; stats?: SourceStats; charts?: ChartData; papers?: ApiPaper[] }> = []
+  // Retrieve in parallel where possible: non-OpenAlex rows are independent, so
+  // they fetch concurrently. OpenAlex rows run after them, so an ORCID's embedded
+  // OpenAlex record can cover a standalone OpenAlex row and skip its redundant
+  // fetch entirely.
+  type Fetched = { text: string; stats?: SourceStats; charts?: ChartData; papers?: ApiPaper[] }
+  const results = new Map<Entry, Fetched>()
   const coveredOpenAlex = new Set<string>()
-  for (const { retrieve, detected } of entries) {
-    const aId = openalexIdOf(detected)
-    if (aId && coveredOpenAlex.has(aId)) {
-      retrieve.className = 'link-row__retrieve is-ok'
-      retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
-      retrieve.title = 'Already included via the ORCID record'
-      sources.add(SOURCE_LABELS[detected.source])
-      continue
-    }
+  const fetchEntry = async (entry: Entry): Promise<void> => {
+    const { retrieve, detected } = entry
     retrieve.className = 'link-row__retrieve is-loading'
     retrieve.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
     const res = await retrieveSource(config.workerUrl, detected.source, detected.id)
@@ -988,7 +980,7 @@ async function validateLinks(
       retrieve.className = 'link-row__retrieve is-ok'
       retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
       retrieve.title = ''
-      collected.push({ text: res.text, stats: res.stats, charts: res.charts, papers: res.papers })
+      results.set(entry, { text: res.text, stats: res.stats, charts: res.charts, papers: res.papers })
       sources.add(SOURCE_LABELS[detected.source])
       const k = openalexKeyOf(res.text)
       if (k) coveredOpenAlex.add(k)
@@ -998,6 +990,26 @@ async function validateLinks(
       retrieve.title = res.reason ?? 'Retrieval failed.'
     }
   }
+
+  const nonOpenalex = entries.filter((e) => e.detected.source !== 'openalex')
+  const openalexRows = entries.filter((e) => e.detected.source === 'openalex')
+  await Promise.all(nonOpenalex.map(fetchEntry))
+  for (const entry of openalexRows) {
+    const aId = openalexIdOf(entry.detected)
+    if (aId && coveredOpenAlex.has(aId)) {
+      entry.retrieve.className = 'link-row__retrieve is-ok'
+      entry.retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
+      entry.retrieve.title = 'Already included via the ORCID record'
+      sources.add(SOURCE_LABELS[entry.detected.source])
+      continue
+    }
+    await fetchEntry(entry)
+  }
+  // Keep the non-OpenAlex-then-OpenAlex order so the assembled profile is stable.
+  const collected = [...nonOpenalex, ...openalexRows].flatMap((e) => {
+    const r = results.get(e)
+    return r ? [r] : []
+  })
   const kept = dedupeRecords(collected)
   const texts = kept.map((k) => k.text)
   const statsSeen = new Set<string>()
@@ -1105,8 +1117,8 @@ function randomError(): string {
   return strings[Math.floor(Math.random() * strings.length)] ?? strings[0]
 }
 
-// Current roast intensity (1–10 scaler), shared by the input and post-roast
-// sliders; read at roast time.
+// Current roast intensity (one of the three levels), shared by the input and
+// post-roast controls; read at roast time.
 let currentIntensity = config.defaultIntensity
 function selectedIntensity(): number {
   return currentIntensity

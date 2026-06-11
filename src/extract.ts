@@ -129,6 +129,8 @@ async function extractOdt(file: File): Promise<string> {
     .replace(/&gt;/g, '>')
     .replace(/&apos;/g, "'")
     .replace(/&quot;/g, '"')
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
