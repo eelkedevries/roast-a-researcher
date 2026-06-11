@@ -83,7 +83,13 @@ async function callOpenRouter({ apiKey, model, system, user, maxTokens, temperat
   const t0 = Date.now()
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      // Optional OpenRouter attribution headers identifying this app.
+      'HTTP-Referer': 'https://github.com/eelkedevries/roast-a-researcher',
+      'X-Title': 'Roast a Researcher (eval)',
+    },
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,

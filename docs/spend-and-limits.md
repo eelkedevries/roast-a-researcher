@@ -46,6 +46,7 @@ documented upgrade.
 | Setting | Value | Where |
 |---|---|---|
 | `DAILY_LIMIT` | `50` roasts per IP per UTC day | `worker/wrangler.toml` `[vars]` |
+| `RETRIEVE_DAILY_LIMIT` | `300` lookups (`/retrieve` + `/search`) per IP per UTC day | `worker/wrangler.toml` `[vars]` |
 | `IP_HASH_SALT` | secret | `wrangler secret put` / `worker/.dev.vars` |
 | KV namespace | `RATE_LIMIT` | `worker/wrangler.toml` `[[kv_namespaces]]` |
 | OpenRouter per-key daily budget | _set by the owner in the OpenRouter dashboard_ | OpenRouter |
