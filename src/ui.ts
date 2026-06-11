@@ -73,6 +73,8 @@ export function mountApp(root: HTMLElement): void {
       <header>
         <p class="kicker">Roast · a · Researcher</p>
         <h1>${copy.title}</h1>
+        <p class="tagline">${copy.tagline}</p>
+        <p class="framing">${copy.framing}</p>
         <div class="auth" id="auth-control"></div>
       </header>
 
@@ -107,7 +109,7 @@ export function mountApp(root: HTMLElement): void {
               <div class="manual__group">
                 <span class="micro-label">Paste text or upload documents <span class="micro-label__sub">PDF · Word · ODT · txt · md</span></span>
                 <div class="field" id="dropzone">
-                  <textarea id="profile" class="field__text" placeholder="${copy.inputPlaceholder}" aria-label="Paste profile text"></textarea>
+                  <textarea id="profile" class="field__text" placeholder="${copy.inputPlaceholder}" aria-label="${copy.inputLabel}"></textarea>
                   <input id="file" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" hidden />
                   <div class="field__bar">
                     <div class="field__actions">

@@ -1,6 +1,7 @@
 /* "Focused Console" design (Direction A). Ported from the design handoff:
-   warm near-black palette, Plus Jakarta Sans + Space Mono, two-card console. */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Space+Mono:wght@400;700&display=swap');
+   warm near-black palette, Plus Jakarta Sans + Space Mono, two-card console.
+   Fonts are loaded from index.html (<link> + preconnect, not @import) so the
+   font fetch starts in parallel with CSS parsing rather than after it. */
 
 :root {
   color-scheme: dark;

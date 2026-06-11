@@ -13,6 +13,13 @@
     />
     <!-- Speed up the first call to the Worker (cross-origin DNS+TLS+TCP). Keep in sync with workerUrl in src/config.ts. -->
     <link rel="preconnect" href="https://roast-a-researcher.eelkedevries.workers.dev" crossorigin />
+    <!-- Fonts via <link> (not a CSS @import) so the fetch starts in parallel with CSS parsing. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Space+Mono:wght@400;700&display=swap"
+    />
     <!-- Open Graph / Twitter: rich preview when the page URL is shared (independent of noindex). -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Roast a Researcher" />
