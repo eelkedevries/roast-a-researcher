@@ -2456,7 +2456,8 @@ export default {
             Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
             'Content-Type': 'application/json',
             // Optional OpenRouter attribution headers identifying this app.
-            'HTTP-Referer': env.APP_URL || env.ALLOW_ORIGIN || '',
+            'HTTP-Referer':
+              env.APP_URL || env.ALLOW_ORIGIN || 'https://github.com/eelkedevries/roast-a-researcher',
             'X-Title': 'Roast a Researcher',
           },
           body: orBody(modelSlug),
