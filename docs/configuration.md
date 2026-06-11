@@ -69,6 +69,7 @@ tier → `google/gemini-2.5-flash`; stronger tiers + regenerate → `anthropic/c
 | `ALLOW_ORIGIN` | the exact Pages origin permitted by CORS |
 | `MAX_INPUT_CHARS` | authoritative input cap |
 | `DAILY_LIMIT` | roasts per hashed IP per UTC day |
+| `RETRIEVE_DAILY_LIMIT` | `/retrieve` + `/search` calls per hashed IP per UTC day (default 300) |
 | `OPENALEX_MAILTO` | contact address sent to OpenAlex (polite pool) |
 | `RETRIEVE_CACHE_TTL` | seconds to cache a public-record retrieval in KV (default 24h) |
 | `ORCID_OAUTH_BASE` | ORCID OAuth host (`https://orcid.org` or the sandbox) |
@@ -88,7 +89,9 @@ Set with `wrangler secret put`, or `worker/.dev.vars` for local `wrangler dev`
 |---|---|
 | `OPENROUTER_API_KEY` | the OpenRouter key; the only component that calls OpenRouter |
 | `IP_HASH_SALT` | salt for hashing the client IP before it is used as a rate-limit key |
-| `OPENALEX_API_KEY` | optional; the (free) OpenAlex key for steadier rate limits |
+| `OPENALEX_API_KEY` | the (free) OpenAlex key — **required for all OpenAlex features**: OpenAlex now uses usage-based pricing and rejects anonymous requests with HTTP 429 |
+| `GITHUB_TOKEN` | optional; raises the GitHub API rate limit for profile retrieval |
+| `ORCID_TOKEN` | optional; a read-public token that raises ORCID API rate limits |
 | `ORCID_CLIENT_SECRET` | optional; enables "Log in with ORCID" (login is disabled when unset) |
 | `SESSION_SECRET` | optional; signs the session token for ORCID login (login is disabled when unset) |
 

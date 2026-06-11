@@ -1,29 +1,55 @@
 # Roast a Researcher
 
-*Comedic roast generator for academic profiles*
+*Comedic roast generator for academic profiles — run it on your own record.*
+
+**Live app:** <https://eelkedevries.github.io/roast-a-researcher/>
 
 ## What this is
 
-Comedic roast generator for academic profiles
+Paste your academic profile, upload a CV, or just search your own name — the app
+gathers your public record (ORCID, OpenAlex, Semantic Scholar, DBLP, GitHub, or
+your personal website), then streams back a comedic roast grounded strictly in
+what the record actually says. Alongside the roast it renders structured
+personalia, a de-duplicated publication list, citation metrics, and charts.
 
-This project is built with the **node** stack.
+It is self-directed comedy: the roast is about a public, professional academic
+record, not a verdict on a person. Content rules (no protected characteristics,
+no invented allegations, every joke traceable to the supplied text) are enforced
+in a fixed server-side prompt at every intensity.
+
+## How it works
+
+Two deployables, deployed separately (see `docs/deployment.md`):
+
+- **Front end** — a Vite + TypeScript static site on GitHub Pages. Handles input
+  (search, links, paste, file extraction in the browser), streams the roast, and
+  renders the result. Holds no secrets.
+- **Worker** — a Cloudflare Worker that holds the OpenRouter API key, carries the
+  system prompt and content rules (`worker/roast.md`), enforces per-IP daily
+  limits, fetches the public scholarly sources, and relays the model's stream
+  as SSE.
 
 ## Running locally
 
 ```bash
 npm ci          # install exact dependencies from the committed lockfile
 npm run dev     # start the development server
-npm run check   # type-check and build (the verify command)
+npm run check   # validate config, type-check and build (the verify command)
+npm test        # unit tests (generation helpers + eval harness)
 npm run build   # produce the static output in dist/
 npm run preview # preview the production build
 ```
 
-## How it builds and deploys
+The site is served under the base path `/roast-a-researcher/` to match GitHub
+Pages. CI re-runs the build, the verify command, the tests and a secret scan on
+every push. See `docs/installation.md` for Worker-side local development.
 
-The build tool compiles the source into `dist/`. Installs are reproducible from the committed lockfile (`npm ci`, not `npm install`). The site is served under the base path `/roast-a-researcher/` to match GitHub Pages deployment.
+## Documentation
 
-CI re-runs the build, the verify command, and a secret scan on every push, so a
-broken or leaky commit is caught automatically.
+- `docs/` — user-facing docs: usage, configuration, deployment, privacy,
+  spend controls, evaluation, troubleshooting. Start at `docs/README.md`.
+- `docs-dev/` — development process docs (prompt workflow, planning, binding
+  specification). Start at `docs-dev/agent/how_to_use.md`.
 
 ## Development workflow
 
@@ -36,13 +62,11 @@ This repository follows the `eek-a-dev` commit-to-`main` workflow:
 - do not create feature branches or pull requests unless explicitly instructed;
 - run the project verify command and prompt checks before committing.
 
-Start with `docs-dev/agent/how_to_use.md` for the daily workflow.
+Key reference documents:
 
-## Reference documents
-
-- `docs-dev/reference/primary_authoritative/specification.md` — binding design and architecture reference.
-- `docs-dev/reference/secondary_background/overview.md` — non-binding product overview.
-- `docs-dev/planning/current_state.md` — current repository state and implemented progress.
+- `docs-dev/reference/primary_authoritative/specification.md` — binding design
+  and architecture reference.
+- `docs-dev/planning/current_state.md` — current repository state and progress.
 
 ## Local safety hooks
 

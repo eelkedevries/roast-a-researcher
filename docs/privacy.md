@@ -31,6 +31,11 @@ or the roast:
 
 The page keeps the text and the roast only in memory for the session.
 
+If you use the optional **Log in with ORCID**, the only thing retained is a
+signed session token (your ORCID iD and display name) in your browser's
+localStorage; it expires after 12 hours and is removed on logout. The Worker
+stores nothing about the login.
+
 ## Sharing and search visibility
 
 Sharing is entirely client-side: copy, download as text, or download as an image

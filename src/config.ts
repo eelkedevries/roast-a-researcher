@@ -3,11 +3,11 @@
 // Worker holds the API key. See the specification, Data schemas → Configuration.
 
 export interface AppConfig {
-  /** Deployed Worker endpoint the front end calls. Wired in 003; empty for now. */
+  /** Deployed Worker endpoint the front end calls. */
   workerUrl: string
   /** Client-side input cap, mirroring the Worker's authoritative limit. */
   maxInputChars: number
-  /** Default roast intensity on the 1–10 scaler. */
+  /** Intensity level used until the user picks one (see intensityLevels). */
   defaultIntensity: number
   /** Show the optional "Log in with ORCID" control (verified badge, session-only). */
   orcidLoginEnabled: boolean

@@ -6,10 +6,12 @@ them separately.
 
 ## Front end → GitHub Pages
 
-1. In the repository: **Settings → Pages → Build and deployment → Source:
+1. One-time setup: **Settings → Pages → Build and deployment → Source:
    "GitHub Actions"**.
-2. Run the deploy workflow: **Actions → "Deploy to GitHub Pages" → Run workflow**,
-   or from the CLI `gh workflow run deploy-pages.yml`.
+2. Deploys are automatic: every push to `main` that touches the front end
+   (`src/**`, `index.html`, `vite.config.ts`, the lockfile) runs the
+   `deploy-pages.yml` workflow. It can also be run manually from
+   **Actions → "Deploy to GitHub Pages" → Run workflow**.
 3. The workflow builds `dist/` (`npm ci && npm run build`), runs the public-build
    safety check, and publishes. The site appears at
    `https://eelkedevries.github.io/roast-a-researcher/` (the base path is set in
@@ -35,10 +37,16 @@ From `worker/`:
 3. Set the secrets:
    - `npx wrangler secret put OPENROUTER_API_KEY`
    - `npx wrangler secret put IP_HASH_SALT` (any long random string)
-   - optional: `npx wrangler secret put OPENALEX_API_KEY` (free key, steadier OpenAlex limits)
+   - `npx wrangler secret put OPENALEX_API_KEY` — the free OpenAlex key, required
+     for all OpenAlex features (anonymous requests are rejected with HTTP 429)
    - optional, for "Log in with ORCID": `npx wrangler secret put ORCID_CLIENT_SECRET`
      and `npx wrangler secret put SESSION_SECRET` (login is disabled when either is unset)
 4. Deploy: `npx wrangler deploy`.
+
+Pushes to `main` that touch `worker/**` also deploy automatically via the
+`deploy-worker.yml` workflow (it validates `worker/roast.md` first and re-applies
+the CI-managed secrets). The manual route above is only needed for first-time
+setup or when CI is unavailable.
 
 After deploying the Worker, set `workerUrl` in `src/config.ts` to the Worker URL
 and redeploy the front end so the page calls the live Worker.
