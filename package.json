@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "node scripts/check-config.mjs && tsc --noEmit && vite build",
+    "check": "node scripts/check-config.mjs && tsc --noEmit && tsc -p worker --noEmit && vite build",
     "test": "node --test \"worker/src/**/*.test.mjs\" \"eval/**/*.test.mjs\"",
     "preview": "vite preview"
   },

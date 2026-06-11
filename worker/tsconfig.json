@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "WebWorker"],
+    "skipLibCheck": true,
+
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src", "modules.d.ts"],
+  "exclude": ["src/**/*.test.mjs"]
+}
