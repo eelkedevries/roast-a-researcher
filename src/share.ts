@@ -38,7 +38,9 @@ function renderPng(text: string, title: string): Promise<Blob | null> {
   const ctx = canvas.getContext('2d')
   if (!ctx) return Promise.resolve(null)
 
-  const bodyFont = '20px system-ui, sans-serif'
+  // Match the app's cosmic palette; the page has already loaded these webfonts,
+  // so the canvas can use them with system fallbacks.
+  const bodyFont = '20px Spectral, Georgia, serif'
   ctx.font = bodyFont
   const lines = wrapText(ctx, text, width - padding * 2)
   const height = padding * 2 + titleGap + lines.length * lineHeight
@@ -50,14 +52,14 @@ function renderPng(text: string, title: string): Promise<Blob | null> {
   canvas.height = height * scale
   ctx.scale(scale, scale)
 
-  ctx.fillStyle = '#1a1a1a'
+  ctx.fillStyle = '#0a0a0f'
   ctx.fillRect(0, 0, width, height)
 
-  ctx.fillStyle = '#ff7a59'
-  ctx.font = 'bold 28px system-ui, sans-serif'
+  ctx.fillStyle = '#e8b43a'
+  ctx.font = '500 28px Spectral, Georgia, serif'
   ctx.fillText(title, padding, padding + 24)
 
-  ctx.fillStyle = '#f5f5f5'
+  ctx.fillStyle = '#eae7e1'
   ctx.font = bodyFont
   lines.forEach((line, i) => {
     ctx.fillText(line, padding, padding + titleGap + (i + 1) * lineHeight)

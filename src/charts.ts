@@ -19,24 +19,39 @@ function escapeXml(s: string): string {
 function barChartSvg(items: BarItem[]): string {
   const max = Math.max(...items.map((i) => i.value), 1)
   const rowH = 22
-  const labelW = 96
-  const barW = 180
-  const valueW = 44
+  // Size the label column to the longest label (~6.7px per character at 11px
+  // JetBrains Mono) so long venue/country names do not collide with the bars;
+  // the bar column absorbs the difference to keep the figure width constant.
+  const longest = Math.max(...items.map((i) => String(i.label).length), 4)
+  const labelW = Math.min(140, Math.max(60, Math.ceil(longest * 6.7) + 4))
+  const valueW = 40
+  const barW = 280 - valueW - labelW
   const pad = 4
   const width = labelW + barW + valueW
   const height = items.length * rowH + pad * 2
+  // Labels that would still overrun the column are ellipsised (sliced by code
+  // point so a surrogate pair is never split); the full text stays available
+  // in the figure's aria-label and the data table.
+  const maxChars = Math.floor((labelW - 4) / 6.7)
   const rows = items
     .map((it, idx) => {
       const y = pad + idx * rowH
       const w = Math.max(1, Math.round((it.value / max) * barW))
+      const chars = Array.from(String(it.label))
+      const label =
+        chars.length > maxChars
+          ? `${chars.slice(0, maxChars - 1).join('').trimEnd()}…`
+          : String(it.label)
       return (
-        `<text x="0" y="${y + 15}" class="chart__label">${escapeXml(String(it.label))}</text>` +
+        `<text x="0" y="${y + 15}" class="chart__label">${escapeXml(label)}</text>` +
         `<rect x="${labelW}" y="${y + 4}" width="${w}" height="${rowH - 8}" rx="2" class="chart__bar"></rect>` +
         `<text x="${labelW + w + 4}" y="${y + 15}" class="chart__value">${Number(it.value)}</text>`
       )
     })
     .join('')
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" class="chart__svg">${rows}</svg>`
+  // max-width caps the figure at its natural size, so the 11px text is never
+  // scaled up and only shrinks when the container is genuinely narrower.
+  return `<svg viewBox="0 0 ${width} ${height}" width="100%" style="max-width:${width}px" preserveAspectRatio="xMinYMin meet" role="img" class="chart__svg">${rows}</svg>`
 }
 
 function dataTable(items: BarItem[]): HTMLDetailsElement {

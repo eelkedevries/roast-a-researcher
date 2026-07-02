@@ -95,6 +95,11 @@ This file records what *is* (current reality). The binding design canon is `docs
 - Site served under base path `/roast-a-researcher/` — a subfolder of the
   eelkedevries.com document root, deployed by `deploy-site.yml` over SSH/rsync
   (moved off GitHub Pages so the repository can be private; spec v1.40).
+- Front end restyled to match eelkedevries.com's cosmic theme: Spectral /
+  Lexend / JetBrains Mono, gold + iris accents on near-black, a starfield
+  backdrop, and shared chrome (slim top bar + site footer linking back to the
+  main site). The share-image canvas, favicon and charts follow the same
+  palette.
 - Front-end UI copy and public settings (`WORKER_URL`, `DEFAULT_MODEL`,
   `MAX_INPUT_CHARS`, `DEFAULT_INTENSITY`) live in `src/config.ts`; no secret ever
   ships to the browser.

@@ -34,6 +34,12 @@ const SEARCH_SOURCES: readonly SourceKind[] = [
 const UNSUPPORTED_LINK =
   'That does not look like a web address. Enter a full link (https://…) or paste the text instead.'
 
+// scrollIntoView ignores the CSS scroll-behavior override, so honour the
+// reduced-motion preference explicitly.
+function scrollBehaviour(): ScrollBehavior {
+  return matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+}
+
 // Canonical public-record URL for a detected source (for the "View record" link).
 function recordUrl(detected: { source: SourceKind; id: string }): string {
   const id = detected.id.trim()
@@ -69,9 +75,17 @@ export function mountApp(root: HTMLElement): void {
       .join('') +
     `</div>`
   root.innerHTML = `
-    <main class="wrap">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="topbar__home" href="https://eelkedevries.com/">Eelke de Vries</a>
+        <span class="topbar__sep" aria-hidden="true">/</span>
+        <span class="topbar__here">Roast a Researcher</span>
+      </div>
+    </header>
+    <main class="wrap" id="main">
       <header>
-        <p class="kicker">Roast · a · Researcher</p>
+        <p class="kicker">Self-directed academic comedy</p>
         <h1>${copy.title}</h1>
         <p class="tagline">${copy.tagline}</p>
         <p class="framing">${copy.framing}</p>
@@ -83,18 +97,19 @@ export function mountApp(root: HTMLElement): void {
           <div class="step__head">
             <span class="step__num">01</span>
             <h2 class="step__title">Input</h2>
-            <button class="step__sample" id="sample" type="button">Try a sample</button>
+            <button class="step__sample" id="sample" type="button">See a sample roast</button>
           </div>
 
           <div class="search-hero">
             <span class="search-hero__icon" aria-hidden="true">⌕</span>
-            <input id="search-query" class="search-hero__input" type="text" placeholder="Search by name…" aria-label="Search by name" />
+            <input id="search-query" class="search-hero__input" type="text" placeholder="Search for a researcher by name…" aria-label="Search for a researcher by name" />
             <button class="btn btn--primary search-hero__btn" id="search-btn" type="button">Search</button>
           </div>
+          <p class="search-hint">Searches ORCID, OpenAlex, GitHub, Semantic Scholar and DBLP.</p>
           <div id="search-results" class="search-results" aria-live="polite"></div>
 
           <details class="manual" id="manual">
-            <summary class="manual__summary"><span class="manual__chevron" aria-hidden="true">›</span> Or add a personal website, links, or upload documents</summary>
+            <summary class="manual__summary"><span class="manual__chevron" aria-hidden="true">›</span> Or add sources yourself — a website, profile links, pasted text or documents</summary>
             <div class="manual__body">
               <div class="manual__group">
                 <span class="micro-label">Personal website <span class="micro-label__sub">the whole site is scraped — CV, media, publications…</span></span>
@@ -146,11 +161,11 @@ export function mountApp(root: HTMLElement): void {
               </select>
             </div>
             <div class="action-row__go">
-              <button class="btn btn--ghost" id="export-data" type="button">Download data</button>
               <button class="btn btn--primary" id="roast" type="button">${copy.roastButton}</button>
             </div>
           </div>
           <p class="step__hint">${copy.intensityHint}</p>
+          <button class="step__utility" id="export-data" type="button">Download the retrieved data</button>
         </div>
       </section>
 
@@ -173,7 +188,7 @@ export function mountApp(root: HTMLElement): void {
         </section>
 
         <section class="rsec" id="sec-profile">
-          <h2 class="rsec__h">Profile</h2>
+          <h2 class="rsec__h">The roast</h2>
           <div class="output placeholder" id="output" aria-live="polite">${copy.outputPlaceholder}</div>
           <p class="runmeta hidden" id="runmeta"></p>
           <div class="reroast hidden" id="reroast">
@@ -190,7 +205,7 @@ export function mountApp(root: HTMLElement): void {
 
         <section class="rsec hidden" id="sec-papers">
           <h2 class="rsec__h">Papers</h2>
-          <p class="papers-hint">Tick any that aren't this researcher's (data sources sometimes mis-attribute), then re-roast.</p>
+          <p class="papers-hint">Tick any that are not this researcher's — sources occasionally mis-attribute — then re-roast.</p>
           <ol class="papers" id="papers"></ol>
           <button class="btn btn--ghost hidden" id="papers-reroast" type="button">Re-roast without marked papers</button>
         </section>
@@ -208,13 +223,15 @@ export function mountApp(root: HTMLElement): void {
         </div>
       </section>
 
-      <hr class="div" />
+    </main>
 
-      <footer aria-label="Privacy">
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span class="copy"><span class="bdot" aria-hidden="true"></span>&copy; Eelke de Vries · <a href="https://eelkedevries.com/">eelkedevries.com</a></span>
         <p class="privacy">${copy.privacyNotice}
           <a href="${copy.providerPolicyUrl}" target="_blank" rel="noopener">${copy.providerPolicyLabel}</a>.</p>
-      </footer>
-    </main>
+      </div>
+    </footer>
   `
 
   const $ = <T extends HTMLElement>(sel: string): T => root.querySelector<T>(sel) as T
@@ -310,7 +327,7 @@ export function mountApp(root: HTMLElement): void {
   // list to mark mis-attributed papers.
   $<HTMLButtonElement>('#reroast-btn').addEventListener('click', () => triggerRoast?.(true))
   $<HTMLButtonElement>('#inspect-papers').addEventListener('click', () => {
-    root.querySelector('#sec-papers')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    root.querySelector('#sec-papers')?.scrollIntoView({ behavior: scrollBehaviour(), block: 'start' })
   })
 
   // Try a sample: the zero-cost canned demo (no model call), seeded so the user
@@ -1517,7 +1534,7 @@ function showDemo(root: HTMLElement, textarea: HTMLTextAreaElement, output: HTML
   if (chartsCard) renderCharts(chartsCard, [demoResearcher.charts])
   toggleNumbers(root, [demoResearcher.stats], [demoResearcher.charts])
   root.querySelector('#share')?.classList.remove('hidden')
-  root.querySelector('#sec-personalia')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  root.querySelector('#sec-personalia')?.scrollIntoView({ behavior: scrollBehaviour(), block: 'start' })
 }
 
 async function runRoast(
