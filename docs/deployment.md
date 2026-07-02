@@ -14,8 +14,13 @@ publicly available even while this repository is private.
 1. One-time setup: add the deploy secrets under **Settings → Secrets and
    variables → Actions**, with the same values as the eelkedevries.com
    repository: `SSH_PRIVATE_KEY`, `SSH_KEY_PASSPHRASE` (optional),
-   `SSH_KNOWN_HOSTS`, `REMOTE_HOST`, `REMOTE_USER`, `REMOTE_PORT`,
-   `REMOTE_PATH_PRODUCTION`.
+   `SSH_KNOWN_HOSTS` (optional — the workflow falls back to a run-time
+   `ssh-keyscan`), `REMOTE_HOST`, `REMOTE_USER`, `REMOTE_PORT`,
+   `REMOTE_PATH_PRODUCTION`. Easiest is
+   `bash scripts/setup-deploy-secrets.sh`, run locally on the machine that
+   holds the deploy key: it prompts for the values once and sets them all via
+   the GitHub CLI (secrets are write-only, so they cannot be copied between
+   repositories automatically).
 2. Deploys are automatic: every push to `main` that touches the front end
    (`src/**`, `public/**`, `index.html`, `vite.config.ts`, the lockfile) runs
    the `deploy-site.yml` workflow. It can also be run manually from
