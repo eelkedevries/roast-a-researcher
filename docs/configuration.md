@@ -13,7 +13,7 @@ Worker secrets. No secret is ever shipped to the browser.
 | `orcidLoginEnabled` | show the optional "Log in with ORCID" control |
 | `copy.*` | all user-facing text: tagline, framing, helper lines, privacy notice + provider-policy link, and the in-character error strings |
 
-Change a value and redeploy the front end (the Pages workflow).
+Change a value and redeploy the front end (the site deploy workflow).
 
 ## Model, parameters and prompt — `worker/roast.md`
 
@@ -66,7 +66,7 @@ tier → `google/gemini-2.5-flash`; stronger tiers + regenerate → `anthropic/c
 
 | Var | Meaning |
 |---|---|
-| `ALLOW_ORIGIN` | the exact Pages origin permitted by CORS |
+| `ALLOW_ORIGIN` | the exact app origin permitted by CORS |
 | `MAX_INPUT_CHARS` | authoritative input cap |
 | `DAILY_LIMIT` | roasts per hashed IP per UTC day |
 | `RETRIEVE_DAILY_LIMIT` | `/retrieve` + `/search` calls per hashed IP per UTC day (default 300) |
@@ -75,7 +75,7 @@ tier → `google/gemini-2.5-flash`; stronger tiers + regenerate → `anthropic/c
 | `ORCID_OAUTH_BASE` | ORCID OAuth host (`https://orcid.org` or the sandbox) |
 | `ORCID_CLIENT_ID` | the registered ORCID app's client ID (public by OAuth design) |
 | `ORCID_REDIRECT_URI` | the Worker's `/auth/orcid/callback` URL |
-| `APP_URL` | the Pages app URL the browser returns to after login |
+| `APP_URL` | the app URL the browser returns to after login |
 
 A `[[kv_namespaces]]` binding (`RATE_LIMIT`) holds the daily counter and the
 short-lived public-record cache.

@@ -14,7 +14,7 @@ fallthrough = true
 # `wrangler secret put` for the deployed Worker, or in worker/.dev.vars
 # (git-ignored) for local `wrangler dev`.
 [vars]
-ALLOW_ORIGIN = "https://eelkedevries.github.io"
+ALLOW_ORIGIN = "https://eelkedevries.com"
 MAX_INPUT_CHARS = "40000"
 DAILY_LIMIT = "50"
 # Per-IP daily cap on the /retrieve and /search endpoints — separate from and more
@@ -41,8 +41,9 @@ RETRIEVE_CACHE_TTL = "86400"
 ORCID_OAUTH_BASE = "https://orcid.org"
 ORCID_CLIENT_ID = "APP-ILUQFY2R5DFRQLKU"
 ORCID_REDIRECT_URI = "https://roast-a-researcher.eelkedevries.workers.dev/auth/orcid/callback"
-# Where to send the browser back to after a successful login (the Pages app).
-APP_URL = "https://eelkedevries.github.io/roast-a-researcher/"
+# Where to send the browser back to after a successful login (the app on
+# eelkedevries.com).
+APP_URL = "https://eelkedevries.com/roast-a-researcher/"
 
 # Per-IP daily rate-limit counter (key: rl:<UTC-date>:<hashed-ip>, TTL = end of day).
 [[kv_namespaces]]

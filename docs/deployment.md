@@ -1,21 +1,33 @@
 # Deployment
 
-Roast a Researcher has two deployables: a static front end on GitHub Pages, and a
-Cloudflare Worker that holds the OpenRouter key and proxies the model call. Deploy
-them separately.
+Roast a Researcher has two deployables: a static front end served from
+eelkedevries.com, and a Cloudflare Worker that holds the OpenRouter key and
+proxies the model call. Deploy them separately.
 
-## Front end → GitHub Pages
+## Front end → eelkedevries.com
 
-1. One-time setup: **Settings → Pages → Build and deployment → Source:
-   "GitHub Actions"**.
+The front end is served at <https://eelkedevries.com/roast-a-researcher/> — a
+subfolder of the eelkedevries.com document root, on the same host as the main
+site. Because that host serves the files (not GitHub Pages), the page remains
+publicly available even while this repository is private.
+
+1. One-time setup: add the deploy secrets under **Settings → Secrets and
+   variables → Actions**, with the same values as the eelkedevries.com
+   repository: `SSH_PRIVATE_KEY`, `SSH_KEY_PASSPHRASE` (optional),
+   `SSH_KNOWN_HOSTS`, `REMOTE_HOST`, `REMOTE_USER`, `REMOTE_PORT`,
+   `REMOTE_PATH_PRODUCTION`.
 2. Deploys are automatic: every push to `main` that touches the front end
-   (`src/**`, `index.html`, `vite.config.ts`, the lockfile) runs the
-   `deploy-pages.yml` workflow. It can also be run manually from
-   **Actions → "Deploy to GitHub Pages" → Run workflow**.
-3. The workflow builds `dist/` (`npm ci && npm run build`), runs the public-build
-   safety check, and publishes. The site appears at
-   `https://eelkedevries.github.io/roast-a-researcher/` (the base path is set in
+   (`src/**`, `public/**`, `index.html`, `vite.config.ts`, the lockfile) runs
+   the `deploy-site.yml` workflow. It can also be run manually from
+   **Actions → "Deploy Site" → Run workflow**.
+3. The workflow builds `dist/` (`npm ci && npm run build`), runs the
+   public-build safety check, and rsyncs the output over SSH into
+   `<docroot>/roast-a-researcher/` (the matching base path is set in
    `vite.config.ts`).
+
+The eelkedevries.com repository's own deploy protects `/roast-a-researcher/`
+from its `rsync --delete` (`scripts/deploy.sh` there), so the two deploys never
+interfere.
 
 The front end holds no secret. Its only knowledge of the backend is `workerUrl`
 in `src/config.ts`, a committed value set at build time.
@@ -53,6 +65,6 @@ and redeploy the front end so the page calls the live Worker.
 
 ## CORS
 
-`ALLOW_ORIGIN` in `worker/wrangler.toml` must be the exact Pages origin
-(`https://eelkedevries.github.io`, scheme + host, no path). The Worker rejects any
-other origin.
+`ALLOW_ORIGIN` in `worker/wrangler.toml` must be the exact origin the app is
+served from (`https://eelkedevries.com`, scheme + host, no path). The Worker
+rejects any other origin.

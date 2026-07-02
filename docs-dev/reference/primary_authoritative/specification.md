@@ -1,6 +1,6 @@
 # roast-a-researcher — specification
 
-**Version:** 1.39 · **Last updated:** 2026-06-08 · **Status:** binding design canon.
+**Version:** 1.40 · **Last updated:** 2026-07-02 · **Status:** binding design canon.
 
 This is the binding design reference for the project. It is treated as ground
 truth: implementation must not contradict it, and where a change would conflict,
@@ -28,7 +28,7 @@ self-service generator: any researcher runs it on their own material, supplied b
 pasting or by uploading a file that the browser converts to text. The output is
 produced per request and is not stored.
 
-The system has two deployables: a static front end on GitHub Pages, and a single
+The system has two deployables: a static front end served from eelkedevries.com, and a single
 small Cloudflare Worker that holds the model API key and proxies the model call.
 There is no database, no user accounts, no payment system, and no server beyond
 the Worker.
@@ -52,7 +52,7 @@ or login-walled sites (e.g. LinkedIn, Google Scholar) often yield little and may
 need pasting instead. User-supplied keys, accounts, persistence, hosted roast
 pages, and analytics stay out of scope.
 
-Target environment: a static site served from `https://<owner>.github.io` and a
+Target environment: a static site served from `https://eelkedevries.com/roast-a-researcher/` and a
 Worker on a Cloudflare account. Development is on Linux.
 
 ### Aims and goals
@@ -73,15 +73,15 @@ deployables with no backend state beyond rate-limit counters.
 ### Two deployables
 
 1. **Front end** — a static Vite + TypeScript site, built to `dist/` and deployed
-   to GitHub Pages by the template's `deploy-pages.yml`. It holds no secret. It
+   into the eelkedevries.com document root (subfolder `/roast-a-researcher/`) by `deploy-site.yml` over SSH/rsync. It holds no secret. It
    also performs all file-to-text extraction (below) and all sharing/export, both
    entirely in the browser. Its only knowledge of the backend is the Worker's URL,
    set at build time.
 2. **Worker** — a single Cloudflare Worker in `worker/`, deployed separately with
-   `wrangler deploy` (not through the Pages workflow). It holds the OpenRouter key
+   `wrangler deploy` (not through the site workflow). It holds the OpenRouter key
    and is the only component that calls OpenRouter.
 
-The two communicate over HTTPS with CORS pinned to the Pages origin. The Worker
+The two communicate over HTTPS with CORS pinned to the app origin. The Worker
 contract is text-only: it never receives files, only the extracted/pasted text.
 
 ### Repository layout
@@ -118,7 +118,7 @@ OpenAlex now requires a (free) API key — see Later data sources — so
 The Worker is a thin, OpenAI-compatible proxy. On each request it, in order:
 
 1. answers the CORS preflight (`OPTIONS`) and rejects any origin other than the
-   configured Pages origin;
+   configured app origin;
 2. validates method, content type, body presence and input size (against
    `MAX_INPUT_CHARS`); the model is fixed server-side in `roast.md`, not chosen by
    the request;
@@ -169,7 +169,7 @@ the whole generation and defeat streaming.
 
 CORS: the request carries `Content-Type: application/json`, so it is not a simple
 request and the browser issues a preflight `OPTIONS`, which the Worker answers
-before the `POST`. `Access-Control-Allow-Origin` is the exact Pages origin
+before the `POST`. `Access-Control-Allow-Origin` is the exact app origin
 (scheme plus host, no path, no trailing slash), never `*`; the same header is
 echoed on the real response.
 
@@ -256,7 +256,7 @@ It is deliberately minimal and does not turn the app into an account-based servi
   then mints a short-lived **signed token** (HMAC over `{orcid, name, exp}` using
   the `SESSION_SECRET`) and returns it to the browser. Nothing is persisted
   server-side; the relaxation of statelessness recorded above is unchanged.
-- **Header token, not a cookie.** The Pages front end and the Worker are different
+- **Header token, not a cookie.** The front end and the Worker are different
   sites, so a session cookie would be a third-party cookie (increasingly blocked).
   The front end stores the signed token in `localStorage` and sends it as an
   `Authorization: Bearer` header; the Worker validates it (`/auth/me`). Logout is
@@ -350,7 +350,7 @@ Worker config, `worker/wrangler.toml` `[vars]` (committed, non-secret):
 
 | Var | Meaning |
 |---|---|
-| `ALLOW_ORIGIN` | the exact Pages origin permitted by CORS |
+| `ALLOW_ORIGIN` | the exact app origin permitted by CORS |
 | `DAILY_LIMIT` | roasts per hashed IP per UTC day |
 | `MAX_INPUT_CHARS` | authoritative input cap |
 | `OPENALEX_MAILTO` | contact for OpenAlex requests |
@@ -358,7 +358,7 @@ Worker config, `worker/wrangler.toml` `[vars]` (committed, non-secret):
 | `ORCID_OAUTH_BASE` | ORCID OAuth host (`https://sandbox.orcid.org` or `https://orcid.org`) |
 | `ORCID_CLIENT_ID` | the registered ORCID app's client ID (public by OAuth design) |
 | `ORCID_REDIRECT_URI` | the Worker's `/auth/orcid/callback` URL |
-| `APP_URL` | the Pages app URL the browser returns to after login |
+| `APP_URL` | the app URL the browser returns to after login |
 
 Model, generation parameters and prompt, `worker/roast.md` (committed, non-secret):
 the `model` slug, `maxOutputTokens`, optional `temperature` / `topP`,
@@ -724,7 +724,7 @@ which is comedic by design but still bounded by the content rules above.
 
 ## Locked decisions
 
-- Two deployables: a static Vite + TS front end on GitHub Pages, and a single
+- Two deployables: a static Vite + TS front end served from eelkedevries.com, and a single
   Cloudflare Worker proxy. No database, accounts, payments, or hosted roast pages.
 - The OpenRouter key is held only as a Worker secret; users never supply a key.
 - Client IP from `CF-Connecting-IP` only, hashed with a salt before use.
@@ -735,7 +735,7 @@ which is comedic by design but still bounded by the content rules above.
   API-derived data is cached — never user text and never the roast.
 - Three spend controls: account balance, per-key daily budget, Worker per-IP cap.
 - SSE is relayed by passing the upstream body through without buffering.
-- CORS is pinned to the exact Pages origin; the budget caps, not origin pinning,
+- CORS is pinned to the exact app origin; the budget caps, not origin pinning,
   are the real abuse protection.
 - A flash-class model, pinned by slug in config and verified at build; the default
   is the full `google/gemini-2.5-flash` tier (to sustain a longer roast when warranted), with
@@ -854,7 +854,7 @@ sharing, or any external data source. Do not place any key in the front end.
 
 ## Acceptance criteria
 
-The task is complete when a pasted profile sent from the Pages origin returns a
+The task is complete when a pasted profile sent from the app origin returns a
 roast that obeys the content rules, requests from other origins are rejected by
 CORS, oversized or disallowed-model requests are rejected, and no secret appears
 in the front-end bundle.

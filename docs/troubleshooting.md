@@ -40,15 +40,14 @@ pasted text.
 
 ## Developing and deploying
 
-**Blank page after a GitHub Pages deploy** — almost always a base-path problem.
-For a project site at `https://username.github.io/repository-name/`, `base` in
-`vite.config.ts` must be `/repository-name/`. Check the browser console for
-asset 404s.
+**Blank page after a deploy** — almost always a base-path problem. The app is
+served from a subfolder, so `base` in `vite.config.ts` must match it
+(`/roast-a-researcher/`). Check the browser console for asset 404s.
 
 **Browser console shows CORS / `forbidden_origin` errors** — the Worker pins
 requests to one origin. `ALLOW_ORIGIN` in `worker/wrangler.toml` must be the
-exact Pages origin (`https://eelkedevries.github.io` — scheme + host, no path,
-no trailing slash).
+exact origin the app is served from (`https://eelkedevries.com` — scheme +
+host, no path, no trailing slash).
 
 **`npm run check` fails on `worker/roast.md`** — the YAML frontmatter is
 malformed or a placeholder is missing; the error message lists exactly what.

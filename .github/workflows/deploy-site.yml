@@ -1,0 +1,107 @@
+# Builds the static front end and deploys it over SSH/rsync into the
+# /roast-a-researcher/ subfolder of the eelkedevries.com document root, so the
+# app is served at https://eelkedevries.com/roast-a-researcher/. Serving from
+# that host (rather than GitHub Pages) keeps the public page available even
+# while this repository is private.
+#
+# Required repository secrets (same values as the eelkedevries.com repository):
+#   SSH_PRIVATE_KEY          private half of the dedicated deploy key
+#   SSH_KEY_PASSPHRASE       (optional) the key's passphrase — stripped at run time
+#   SSH_KNOWN_HOSTS          (optional) pinned host key line(s)
+#   REMOTE_HOST              SSH hostname
+#   REMOTE_USER              SSH username
+#   REMOTE_PORT              SSH port
+#   REMOTE_PATH_PRODUCTION   absolute document root of eelkedevries.com
+#
+# The eelkedevries.com deploy protects /roast-a-researcher/ from its
+# rsync --delete (scripts/deploy.sh there), so the two deploys never interfere.
+name: Deploy Site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'vite.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel an in-flight deploy: a half-finished rsync must not be interrupted.
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build
+      - run: bash scripts/check-public-build.sh dist
+
+      - name: Prepare SSH credentials
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KEY_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+          REMOTE_PORT: ${{ secrets.REMOTE_PORT }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [ -n "${SSH_KEY_PASSPHRASE:-}" ]; then
+            ssh-keygen -p -P "$SSH_KEY_PASSPHRASE" -N "" -f ~/.ssh/deploy_key \
+              || { echo "::error::Could not strip key passphrase — SSH_KEY_PASSPHRASE does not match SSH_PRIVATE_KEY."; exit 1; }
+          fi
+          # known_hosts: start from the secret (if any), then always append a live
+          # ssh-keyscan so a malformed or port-mismatched secret cannot break the
+          # deploy under StrictHostKeyChecking=yes.
+          : > ~/.ssh/known_hosts
+          if [ -n "${SSH_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+          fi
+          port="${REMOTE_PORT:-22}"
+          ssh-keyscan -T 15 -p "$port" "$REMOTE_HOST" >> ~/.ssh/known_hosts 2>/dev/null \
+            || echo "::warning::ssh-keyscan of $REMOTE_HOST:$port returned nothing — host unreachable or port wrong."
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy via rsync over SSH
+        env:
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}
+          REMOTE_PORT: ${{ secrets.REMOTE_PORT }}
+          REMOTE_PATH: ${{ secrets.REMOTE_PATH_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          : "${REMOTE_PATH:?REMOTE_PATH_PRODUCTION secret is not set}"
+          port="${REMOTE_PORT:-22}"
+          target="${REMOTE_PATH%/}/roast-a-researcher/"
+          ssh_cmd="ssh -p $port -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+          echo ">> Deploying dist/ -> $REMOTE_USER@$REMOTE_HOST:$target (port $port)"
+          rsync \
+            --archive --no-owner --no-group --omit-dir-times \
+            --compress --human-readable --itemize-changes \
+            --delete-after --delay-updates \
+            -e "$ssh_cmd" \
+            dist/ "$REMOTE_USER@$REMOTE_HOST:$target"
+          echo ">> Deploy complete."
+
+      - name: Remove deploy credentials
+        if: always()
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts || true

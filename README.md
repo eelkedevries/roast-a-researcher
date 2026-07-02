@@ -2,7 +2,7 @@
 
 *Comedic roast generator for academic profiles — run it on your own record.*
 
-**Live app:** <https://eelkedevries.github.io/roast-a-researcher/>
+**Live app:** <https://eelkedevries.com/roast-a-researcher/>
 
 ## What this is
 
@@ -21,7 +21,8 @@ in a fixed server-side prompt at every intensity.
 
 Two deployables, deployed separately (see `docs/deployment.md`):
 
-- **Front end** — a Vite + TypeScript static site on GitHub Pages. Handles input
+- **Front end** — a Vite + TypeScript static site served from
+  eelkedevries.com. Handles input
   (search, links, paste, file extraction in the browser), streams the roast, and
   renders the result. Holds no secrets.
 - **Worker** — a Cloudflare Worker that holds the OpenRouter API key, carries the
@@ -40,9 +41,9 @@ npm run build   # produce the static output in dist/
 npm run preview # preview the production build
 ```
 
-The site is served under the base path `/roast-a-researcher/` to match GitHub
-Pages. CI re-runs the build, the verify command, the tests and a secret scan on
-every push. See `docs/installation.md` for Worker-side local development.
+The site is served under the base path `/roast-a-researcher/`, matching its
+folder on eelkedevries.com. CI re-runs the build, the verify command, the tests
+and a secret scan on every push. See `docs/installation.md` for Worker-side local development.
 
 ## Documentation
 
@@ -84,8 +85,9 @@ numbering, and basic formatting before commits.
 No licence has been granted yet. All rights are reserved unless a `LICENSE` file
 is added later.
 
-## Public repository note
+## Repository visibility note
 
-This repository is public. Do not commit secrets, credentials, private notes,
-customer material, or proprietary material. `docs-dev/` is publicly visible but
-is never included in the deployed build output.
+Do not commit secrets, credentials, private notes, customer material, or
+proprietary material, whatever the repository's visibility. `docs-dev/` is
+never included in the deployed build output; if the repository is public, it is
+publicly visible.

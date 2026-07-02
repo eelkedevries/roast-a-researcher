@@ -92,7 +92,9 @@ This file records what *is* (current reality). The binding design canon is `docs
 - Stack: Vite + TypeScript, building to `dist/`.
 - Verify command `npm run check` runs the `roast.md` config check, `tsc --noEmit`
   for both the front end and the Worker (`worker/tsconfig.json`), and `vite build`.
-- Site served under base path `/roast-a-researcher/` (GitHub Pages).
+- Site served under base path `/roast-a-researcher/` — a subfolder of the
+  eelkedevries.com document root, deployed by `deploy-site.yml` over SSH/rsync
+  (moved off GitHub Pages so the repository can be private; spec v1.40).
 - Front-end UI copy and public settings (`WORKER_URL`, `DEFAULT_MODEL`,
   `MAX_INPUT_CHARS`, `DEFAULT_INTENSITY`) live in `src/config.ts`; no secret ever
   ships to the browser.
@@ -105,7 +107,7 @@ This file records what *is* (current reality). The binding design canon is `docs
   iD; no private data, no database): `/auth/orcid/login` → ORCID → `/auth/orcid/callback`
   mints a short-lived **HMAC-signed token** (`SESSION_SECRET`) handed back in a URL
   fragment; `/auth/me` validates it. The front end (`src/auth.ts`) stores the token
-  in `localStorage` and sends it as a `Bearer` header (no cookie — the Pages and
+  in `localStorage` and sends it as a `Bearer` header (no cookie — the app and
   Worker origins differ, so a session cookie would be a blocked third-party cookie).
   A header control shows login/logout state; when the logged-in iD matches a
   selected ORCID link row, the personalia Name row shows a cosmetic "✓ ORCID-verified"
@@ -131,7 +133,7 @@ This file records what *is* (current reality). The binding design canon is `docs
   **The spec's UI/presentation sections predate this redesign — treat the code as
   truth for the front-end UI; a spec refresh of those sections is pending.**
 - First version complete and live: front end at
-  `https://eelkedevries.github.io/roast-a-researcher/`, Worker at
+  `https://eelkedevries.com/roast-a-researcher/`, Worker at
   `https://roast-a-researcher.eelkedevries.workers.dev` (subdomain
   `eelkedevries.workers.dev`, KV `RATE_LIMIT`).
 - `012_source_input_panel` done: a "Profile links" panel (single-line inputs +

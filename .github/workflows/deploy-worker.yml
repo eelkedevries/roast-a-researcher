@@ -2,7 +2,7 @@
 # local machine: it runs on push to main when worker code changes, or on manual
 # dispatch from the Actions tab. Authentication is via two repository secrets,
 # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID; the front end deploys separately
-# through deploy-pages.yml.
+# through deploy-site.yml.
 #
 # The OpenAlex API key is re-applied on every deploy from the OPENALEX_API_KEY
 # repository secret (a dashboard-set Worker secret does not survive `wrangler
