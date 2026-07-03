@@ -119,7 +119,12 @@ This file records what *is* (current reality). The binding design canon is `docs
   Lexend / JetBrains Mono, gold + iris accents on near-black, a starfield
   backdrop, and shared chrome (slim top bar + site footer linking back to the
   main site). The share-image canvas, favicon and charts follow the same
-  palette.
+  palette. Typography mirrors the site for legibility: **body weight 400** (not
+  300), reading prose — **including the roast — in Lexend** at full brightness
+  (was thin Spectral at reduced opacity, hard to read on screen); Spectral is kept
+  for display headings. The **Personalia** list is a two-column aligned grid
+  (fixed label column, values share one left edge); its "Education" row was
+  formerly "Education & qualifications".
 - Front-end UI copy and public settings (`WORKER_URL`, `DEFAULT_MODEL`,
   `MAX_INPUT_CHARS`, `DEFAULT_INTENSITY`) live in `src/config.ts`; no secret ever
   ships to the browser.

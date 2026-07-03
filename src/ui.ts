@@ -1600,7 +1600,7 @@ function renderResult(root: HTMLElement, data: Personalia | null): void {
   addRow('Previous affiliations', asStrList(data?.previousAffiliations).join('; '))
   addRow('Research domain', asStr(data?.researchDomain))
   addRow('Research focus', asStrList(data?.researchFocus).join(', '))
-  addRow('Education & qualifications', asStrList(data?.education).join('; '))
+  addRow('Education', asStrList(data?.education).join('; '))
 
   renderProfiles(root)
   renderSubList(root, '#sub-grants', '#p-grants', asStrList(data?.grants))
