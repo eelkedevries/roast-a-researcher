@@ -611,6 +611,20 @@ function sameSiteLinks(html: string, baseUrl: string): string[] {
   return out
 }
 
+// A browser-like User-Agent for website scraping. Some hosts and CDNs (e.g.
+// Cloudflare bot protection) serve a JavaScript challenge or an empty interstitial
+// — a 200 HTML page with no readable content — to non-browser agents, which the
+// crawler then reports as "no readable text found". Presenting as a browser gets the
+// real page. Used only for arbitrary website fetches; the structured-source APIs
+// keep their identifiable `roast-a-researcher` agent.
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+const BROWSER_FETCH_HEADERS: Record<string, string> = {
+  'User-Agent': BROWSER_UA,
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-GB,en;q=0.9',
+}
+
 // fetch() with a connect/headers deadline. The timer is cleared once the response
 // headers arrive (in `finally`, before the caller reads the body), so it bounds only
 // connection + time-to-first-byte — it never aborts a streaming body (e.g. the
@@ -674,10 +688,7 @@ async function fetchPageHtml(target: string): Promise<string | null> {
   const timer = setTimeout(() => controller.abort(), 6000)
   try {
     const res = await fetch(target, {
-      headers: {
-        'User-Agent': 'roast-a-researcher (+https://github.com/eelkedevries/roast-a-researcher)',
-        Accept: 'text/html,application/xhtml+xml,text/plain',
-      },
+      headers: BROWSER_FETCH_HEADERS,
       redirect: 'follow',
       signal: controller.signal,
     })
@@ -726,10 +737,7 @@ async function retrieveWebsite(
   let res: Response
   try {
     res = await fetch(url.toString(), {
-      headers: {
-        'User-Agent': 'roast-a-researcher (+https://github.com/eelkedevries/roast-a-researcher)',
-        Accept: 'text/html,application/xhtml+xml,text/plain',
-      },
+      headers: BROWSER_FETCH_HEADERS,
       redirect: 'follow',
       signal: controller.signal,
     })
