@@ -306,16 +306,19 @@ textarea.input { min-height: 168px; }
 }
 .file-list__item:first-child { border-top: 0; }
 .file-list__top { display: flex; align-items: center; gap: 10px; }
-.file-list__status { width: 14px; color: var(--muted); }
-.file-list__item.is-ok .file-list__status { color: var(--ok); }
-.file-list__item.is-fail .file-list__status { color: var(--error); font-weight: 700; }
-.file-list__name { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-list__size { color: var(--faint); }
-.file-list__remove { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 16px; line-height: 1; min-width: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center; }
+.file-list__name { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-list__size { color: var(--faint); flex: 0 0 auto; }
+/* Status badge, matching the URL "Add" button: spinner → green "Added" / red "Failed". */
+.file-list__badge { flex: 0 0 auto; min-width: 62px; text-align: center; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; border-radius: 7px; padding: 4px 10px; display: inline-flex; align-items: center; justify-content: center; }
+.file-list__badge.is-loading { background: var(--inset); border: 1px solid var(--line-2); }
+.file-list__badge.is-loading .spinner { border-color: var(--line-2); border-top-color: var(--accent); }
+.file-list__badge.is-ok { background: #3fb950; color: #06210d; }
+.file-list__badge.is-bad { background: var(--error); color: #2a0b0b; cursor: help; }
+.file-list__remove { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 16px; line-height: 1; min-width: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
 .file-list__remove:hover { color: var(--accent); }
-.file-list__reason { color: var(--muted); font-size: 11px; line-height: 1.6; padding-left: 24px; }
+.file-list__reason { color: var(--muted); font-size: 11px; line-height: 1.6; }
 .file-list__item.is-fail .file-list__reason { color: var(--error); }
-.file-list__ocr { margin: 2px 0 0 24px; align-self: flex-start; }
+.file-list__ocr { margin: 2px 0 0; align-self: flex-start; }
 
 /* URL rows (option 5) */
 .url-row { margin-bottom: 10px; }

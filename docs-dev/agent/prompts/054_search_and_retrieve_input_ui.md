@@ -66,6 +66,12 @@ From review of the first cut:
   retrieves the URL immediately, so a website can be confirmed before roasting. The
   button itself is the status — a spinner while working, then a green **Added** or a
   red **Failed** (the failure reason is its tooltip). No source tag, no inline reason.
+- **Uploaded documents mirror that UI:** each file shows the same spinner → green
+  **Added** / red **Failed** status badge (detail in its tooltip; the scanned-PDF
+  OCR retry is kept).
+- **Include-checkboxes tick only once ≥1 item is *processed*:** the documents box
+  ticks when a file extracts successfully, and the URL box only when a link has been
+  successfully **Added** (not merely typed). `collectInputs` includes only Added URLs.
 - **PDF upload fix.** The pdf.js worker is bundled through Vite (`?worker`,
   `worker: { format: 'es' }`) so it ships as a hashed `.js` chunk. The previous raw
   `pdf.worker.min.mjs` was served with a non-JS MIME type by the static host, which

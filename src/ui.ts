@@ -393,9 +393,9 @@ export function mountApp(root: HTMLElement): void {
     if (files.length) void processFiles(files, fileList, sources, onDocsChange)
   })
 
-  // URL rows (option 5); a valid URL ticks the box.
+  // URL rows (option 5); the box ticks only once a URL has been successfully Added.
   const onUrlChange = (): void => {
-    setChecked(root, 'url', root.querySelectorAll('.url-row.ok').length > 0)
+    setChecked(root, 'url', root.querySelectorAll('.url-row[data-added="1"]').length > 0)
     markDirty()
   }
   addUrlRow(urlsContainer, onUrlChange)
@@ -484,15 +484,17 @@ async function processFiles(
     item.className = 'file-list__item'
     const top = document.createElement('div')
     top.className = 'file-list__top'
-    const status = document.createElement('span')
-    status.className = 'file-list__status'
-    status.textContent = '…'
     const name = document.createElement('span')
     name.className = 'file-list__name'
     name.textContent = file.name
     const size = document.createElement('span')
     size.className = 'file-list__size'
     size.textContent = `${Math.max(1, Math.round(file.size / 1024))} KB`
+    // Status badge, mirroring the URL "Add" button: spinner → green "Added" / red
+    // "Failed" (the detail — char count or error — is kept as its tooltip).
+    const badge = document.createElement('span')
+    badge.className = 'file-list__badge is-loading'
+    badge.innerHTML = '<span class="spinner" aria-hidden="true"></span>'
     const remove = document.createElement('button')
     remove.type = 'button'
     remove.className = 'file-list__remove'
@@ -503,36 +505,39 @@ async function processFiles(
       sources.delete(file.name)
       onChange()
     })
-    top.append(status, name, size, remove)
-    const reason = document.createElement('small')
-    reason.className = 'file-list__reason'
-    reason.hidden = true
-    item.append(top, reason)
+    top.append(name, size, badge, remove)
+    item.append(top)
     list.appendChild(item)
+
+    const setBadge = (state: 'ok' | 'bad', label: string, title: string): void => {
+      badge.className = `file-list__badge is-${state}`
+      badge.textContent = label
+      badge.title = title
+    }
 
     try {
       const extracted = (await extractText(file)).trim()
       documentTexts.set(item, extracted)
-      status.textContent = '✓'
       item.classList.add('is-ok')
-      reason.hidden = false
-      reason.textContent = `Extracted — ${extracted.length.toLocaleString('en-GB')} characters used in the roast`
+      setBadge('ok', 'Added', `Extracted — ${extracted.length.toLocaleString('en-GB')} characters used in the roast`)
       sources.add(file.name)
       onChange()
     } catch (err) {
-      status.textContent = '✗'
       item.classList.add('is-fail')
-      reason.hidden = false
-      reason.textContent =
-        err instanceof UnsupportedFileError ? err.message : 'Could not read that file.'
+      setBadge('bad', 'Failed', err instanceof UnsupportedFileError ? err.message : 'Could not read that file.')
 
       if (err instanceof ScannedPdfError) {
+        const reason = document.createElement('small')
+        reason.className = 'file-list__reason'
         const ocr = document.createElement('button')
         ocr.type = 'button'
         ocr.className = 'chip file-list__ocr'
         ocr.textContent = 'Try OCR (scanned PDF)'
         ocr.addEventListener('click', () => {
           ocr.disabled = true
+          badge.className = 'file-list__badge is-loading'
+          badge.innerHTML = '<span class="spinner" aria-hidden="true"></span>'
+          badge.title = ''
           reason.textContent = 'Loading OCR…'
           void ocrPdf(file, (msg) => {
             reason.textContent = msg
@@ -540,22 +545,24 @@ async function processFiles(
             .then((text) => {
               const t = text.trim()
               documentTexts.set(item, t)
-              status.textContent = '✓'
               item.classList.remove('is-fail')
               item.classList.add('is-ok')
-              reason.textContent = `Extracted via OCR — ${t.length.toLocaleString('en-GB')} characters used`
-              sources.add(file.name)
+              setBadge('ok', 'Added', `Extracted via OCR — ${t.length.toLocaleString('en-GB')} characters used`)
+              reason.remove()
               ocr.remove()
+              sources.add(file.name)
               onChange()
             })
             .catch((e: unknown) => {
               ocr.disabled = false
+              setBadge('bad', 'Failed', e instanceof UnsupportedFileError ? e.message : 'OCR failed.')
               reason.textContent =
                 e instanceof UnsupportedFileError ? e.message : 'OCR failed. Try another file.'
             })
         })
-        item.appendChild(ocr)
+        item.append(reason, ocr)
       }
+      onChange()
     }
   }
 }
@@ -989,8 +996,9 @@ function collectInputs(root: HTMLElement): Array<{ source: SourceKind; id: strin
     if (v) out.push({ source: f.source, id: v })
   }
   if (root.querySelector<HTMLInputElement>('#check-url')?.checked) {
-    for (const el of Array.from(root.querySelectorAll<HTMLInputElement>('.url-row__input'))) {
-      const v = el.value.trim()
+    // Only URLs the user has successfully "Added" (retrieved) are included.
+    for (const rowEl of Array.from(root.querySelectorAll<HTMLElement>('.url-row[data-added="1"]'))) {
+      const v = rowEl.querySelector<HTMLInputElement>('.url-row__input')?.value.trim()
       if (!v) continue
       const det = detectSource(v)
       if (det) out.push(det)
