@@ -10,7 +10,6 @@ import {
   type Candidate,
   type SourceStats,
   type ChartData,
-  type RetrieveResult,
   type ApiPaper,
 } from './sources'
 import { renderCharts } from './charts'
@@ -24,15 +23,19 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
   dblp: 'DBLP',
   website: 'Website',
 }
-const SEARCH_SOURCES: readonly SourceKind[] = [
-  'github',
-  'orcid',
-  'openalex',
-  'semanticscholar',
-  'dblp',
-]
+// Name-searchable sources, in the order shown. Only these three offer a by-name
+// search; the numbered fields 1–3 correspond to them.
+const SEARCH_SOURCES: readonly SourceKind[] = ['orcid', 'openalex', 'github']
 const UNSUPPORTED_LINK =
-  'That does not look like a web address. Enter a full link (https://…) or paste the text instead.'
+  'That does not look like a web address. Enter a full link (https://…).'
+
+// The three numbered fields that take a single structured identifier each. The
+// source is fixed by the field, so a bare id or a profile URL both work.
+const NUMBERED: ReadonlyArray<{ n: number; source: SourceKind; label: string; ph: string; hint: string }> = [
+  { n: 1, source: 'orcid', label: 'ORCID', ph: 'ORCID iD or profile URL', hint: 'e.g. 0000-0002-1825-0097' },
+  { n: 2, source: 'openalex', label: 'OpenAlex', ph: 'OpenAlex author ID or URL', hint: 'e.g. A5023888391' },
+  { n: 3, source: 'github', label: 'GitHub', ph: 'GitHub username or URL', hint: 'e.g. torvalds' },
+]
 
 // scrollIntoView ignores the CSS scroll-behavior override, so honour the
 // reduced-motion preference explicitly.
@@ -61,7 +64,7 @@ function recordUrl(detected: { source: SourceKind; id: string }): string {
   }
 }
 
-// Builds the "Focused Console" shell and wires it to the real Worker pipeline.
+// Builds the guided input console and wires it to the real Worker pipeline.
 export function mountApp(root: HTMLElement): void {
   const segGroup = (name: string): string =>
     `<div class="segmented" role="radiogroup" aria-label="${copy.intensityLabel}">` +
@@ -74,6 +77,17 @@ export function mountApp(root: HTMLElement): void {
       )
       .join('') +
     `</div>`
+  const numberedRows = NUMBERED.map(
+    (f) => `
+      <li class="inopt" data-source="${f.source}">
+        <span class="inopt__num" aria-hidden="true">${f.n}</span>
+        <div class="inopt__body">
+          <label class="inopt__label" for="in-${f.source}">${f.label}</label>
+          <input id="in-${f.source}" class="input inopt__input" type="text" placeholder="${f.ph}" aria-label="${f.label} — ${f.ph}" />
+          <small class="inopt__hint">${f.hint}</small>
+        </div>
+      </li>`,
+  ).join('')
   root.innerHTML = `
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="topbar">
@@ -96,7 +110,7 @@ export function mountApp(root: HTMLElement): void {
         <div class="step">
           <div class="step__head">
             <span class="step__num">01</span>
-            <h2 class="step__title">Input</h2>
+            <h2 class="step__title">Add your sources</h2>
             <button class="step__sample" id="sample" type="button">See a sample roast</button>
           </div>
 
@@ -105,26 +119,17 @@ export function mountApp(root: HTMLElement): void {
             <input id="search-query" class="search-hero__input" type="text" placeholder="Search for a researcher by name…" aria-label="Search for a researcher by name" />
             <button class="btn btn--primary search-hero__btn" id="search-btn" type="button">Search</button>
           </div>
-          <p class="search-hint">Searches ORCID, OpenAlex, GitHub, Semantic Scholar and DBLP.</p>
+          <p class="search-hint">Searches ORCID, OpenAlex and GitHub. Pick the closest match for each source; the rest hide under “see more options”.</p>
           <div id="search-results" class="search-results" aria-live="polite"></div>
 
-          <details class="manual" id="manual">
-            <summary class="manual__summary"><span class="manual__chevron" aria-hidden="true">›</span> Or add sources yourself — a website, profile links, pasted text or documents</summary>
-            <div class="manual__body">
-              <div class="manual__group">
-                <span class="micro-label">Personal website <span class="micro-label__sub">the whole site is scraped — CV, media, publications…</span></span>
-                <div id="websites"></div>
-                <button class="chip" id="add-website" type="button"><span class="chip__icon" aria-hidden="true">+</span> Add website</button>
-              </div>
-              <div class="manual__group">
-                <span class="micro-label">Profile links <span class="micro-label__sub">ORCID · OpenAlex · GitHub · Semantic Scholar · DBLP</span></span>
-                <div id="links"></div>
-                <button class="chip" id="add-link" type="button"><span class="chip__icon" aria-hidden="true">+</span> Add link</button>
-              </div>
-              <div class="manual__group">
-                <span class="micro-label">Paste text or upload documents <span class="micro-label__sub">PDF · Word · ODT · txt · md</span></span>
+          <ol class="inputs" id="inputs" aria-label="Input options">
+            ${numberedRows}
+            <li class="inopt" data-kind="docs">
+              <span class="inopt__num" aria-hidden="true">4</span>
+              <div class="inopt__body">
+                <span class="inopt__label">Upload documents <span class="inopt__eg">(e.g., CV)</span></span>
                 <div class="field" id="dropzone">
-                  <textarea id="profile" class="field__text" placeholder="${copy.inputPlaceholder}" aria-label="${copy.inputLabel}"></textarea>
+                  <textarea id="profile" class="field__text" placeholder="Drop files below, or paste bio / CV text here…" aria-label="${copy.inputLabel}"></textarea>
                   <input id="file" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" hidden />
                   <div class="field__bar">
                     <div class="field__actions">
@@ -135,11 +140,25 @@ export function mountApp(root: HTMLElement): void {
                 </div>
                 <ul class="file-list" id="file-list"></ul>
               </div>
-            </div>
-          </details>
+            </li>
+            <li class="inopt" data-kind="url">
+              <span class="inopt__num" aria-hidden="true">5</span>
+              <div class="inopt__body">
+                <span class="inopt__label">Enter URL link <span class="inopt__eg">(e.g., website)</span></span>
+                <div id="urls"></div>
+                <button class="chip" id="add-url" type="button"><span class="chip__icon" aria-hidden="true">+</span> Add another link</button>
+              </div>
+            </li>
+          </ol>
+
+          <div class="retrieve">
+            <button class="btn btn--primary" id="retrieve-data" type="button">Retrieve data</button>
+            <button class="step__utility" id="export-data" type="button" hidden>Download the retrieved data</button>
+          </div>
+          <div class="overview hidden" id="overview" aria-live="polite"></div>
         </div>
 
-        <div class="step">
+        <div class="step step--roast hidden" id="step-roast">
           <div class="step__head">
             <span class="step__num">02</span>
             <h2 class="step__title">Roast settings</h2>
@@ -165,7 +184,6 @@ export function mountApp(root: HTMLElement): void {
             </div>
           </div>
           <p class="step__hint">${copy.intensityHint}</p>
-          <button class="step__utility" id="export-data" type="button">Download the retrieved data</button>
         </div>
       </section>
 
@@ -239,14 +257,19 @@ export function mountApp(root: HTMLElement): void {
   const counter = $<HTMLElement>('#counter')
   const output = $<HTMLElement>('#output')
   const roastBtn = $<HTMLButtonElement>('#roast')
-  const manual = $<HTMLDetailsElement>('#manual')
-  const linksContainer = $<HTMLElement>('#links')
   const fileList = $<HTMLUListElement>('#file-list')
-  const statsCard = $<HTMLElement>('#stats-card')
-  const chartsCard = $<HTMLElement>('#charts-card')
+  const urlsContainer = $<HTMLElement>('#urls')
+  const searchResults = $<HTMLElement>('#search-results')
 
   // Provenance of the current input (uploaded filenames, retrieved sources).
   const sources = new Set<string>()
+  sourcesRef = sources
+
+  // Any change to a provided input invalidates the last retrieval, so the next
+  // roast re-retrieves rather than roasting stale data.
+  const markDirty = (): void => {
+    dirty = true
+  }
 
   // ORCID login control (session-only). Read any token the Worker returned in the
   // URL fragment, then render the header control reflecting the current session.
@@ -284,25 +307,23 @@ export function mountApp(root: HTMLElement): void {
   }
   renderAuthControl()
 
-  // Straight after a fresh ORCID login, load the verified researcher's own
-  // profile — as if they had searched for and picked themselves — so their data
-  // is fed in immediately and a roast shows the verified badge.
-  if (justLoggedIn) {
-    const session = getSession()
-    if (session) loadVerifiedProfile(root, session, linksContainer)
-  }
-
   const setCounter = (): void => {
     const n = textarea.value.length
     counter.textContent = `${n} / ${config.maxInputChars}`
     counter.classList.toggle('warn', n > config.maxInputChars)
   }
-  textarea.addEventListener('input', setCounter)
+  textarea.addEventListener('input', () => {
+    setCounter()
+    markDirty()
+  })
+
+  for (const f of NUMBERED) {
+    $<HTMLInputElement>(`#in-${f.source}`).addEventListener('input', markDirty)
+  }
 
   triggerRoast = (regenerate = false) =>
-    void runRoast(textarea, root, output, roastBtn, sources, manual, regenerate)
+    void runRoast(root, output, roastBtn, regenerate)
   roastBtn.addEventListener('click', () => triggerRoast?.(false))
-  // Re-roast from the Papers section after marking mis-attributed papers.
   $<HTMLButtonElement>('#papers-reroast').addEventListener('click', () => triggerRoast?.(true))
 
   // Intensity (3 levels), shared between the input control and the post-roast
@@ -330,12 +351,9 @@ export function mountApp(root: HTMLElement): void {
     root.querySelector('#sec-papers')?.scrollIntoView({ behavior: scrollBehaviour(), block: 'start' })
   })
 
-  // Try a sample: the zero-cost canned demo (no model call), seeded so the user
-  // can see the seeded profile in the manual panel.
+  // Try a sample: the zero-cost canned demo (no model call).
   $<HTMLButtonElement>('#sample').addEventListener('click', () => {
-    showDemo(root, textarea, output)
-    setCounter()
-    manual.open = true
+    showDemo(root, output)
   })
 
   // File upload + drag-and-drop (the whole .field is the drop target).
@@ -344,7 +362,7 @@ export function mountApp(root: HTMLElement): void {
   $<HTMLButtonElement>('#choose').addEventListener('click', () => fileInput.click())
   fileInput.addEventListener('change', () => {
     const files = Array.from(fileInput.files ?? [])
-    if (files.length) void processFiles(files, setCounter, fileList, sources)
+    if (files.length) void processFiles(files, setCounter, fileList, sources, markDirty)
     fileInput.value = ''
   })
   dropzone.addEventListener('dragover', (e) => {
@@ -356,46 +374,38 @@ export function mountApp(root: HTMLElement): void {
     e.preventDefault()
     dropzone.classList.remove('over')
     const files = Array.from(e.dataTransfer?.files ?? [])
-    if (files.length) void processFiles(files, setCounter, fileList, sources)
+    if (files.length) void processFiles(files, setCounter, fileList, sources, markDirty)
   })
 
-  // Personal website(s) — always fully crawled.
-  const websitesContainer = $<HTMLElement>('#websites')
-  addWebsiteRow(websitesContainer)
-  $<HTMLButtonElement>('#add-website').addEventListener('click', () => addWebsiteRow(websitesContainer))
+  // URL rows (option 5).
+  addUrlRow(urlsContainer, markDirty)
+  $<HTMLButtonElement>('#add-url').addEventListener('click', () => addUrlRow(urlsContainer, markDirty))
 
-  // Profile links.
-  addLinkRow(linksContainer)
-  $<HTMLButtonElement>('#add-link').addEventListener('click', () => addLinkRow(linksContainer))
+  // Retrieve data (discrete step) — fetch everything, then show the overview.
+  const retrieveBtn = $<HTMLButtonElement>('#retrieve-data')
+  retrieveBtn.addEventListener('click', () => void runRetrieve(root, sources))
 
   // Export retrieved data.
   const exportBtn = $<HTMLButtonElement>('#export-data')
-  exportBtn.addEventListener('click', () => void exportRetrievedData(root, textarea, exportBtn))
+  exportBtn.addEventListener('click', () => void exportRetrievedData(exportBtn))
 
   // Search by name (primary). Re-searching resets the added inputs first.
   const searchQuery = $<HTMLInputElement>('#search-query')
-  const searchResults = $<HTMLElement>('#search-results')
   const resetInputs = (): void => {
-    linksContainer.textContent = ''
-    addLinkRow(linksContainer)
-    websitesContainer.textContent = ''
-    addWebsiteRow(websitesContainer)
+    for (const f of NUMBERED) $<HTMLInputElement>(`#in-${f.source}`).value = ''
+    urlsContainer.textContent = ''
+    addUrlRow(urlsContainer, markDirty)
     textarea.value = ''
     setCounter()
     fileList.textContent = ''
-    manual.open = false
-    statsCard.setAttribute('hidden', '')
-    chartsCard.setAttribute('hidden', '')
     sources.clear()
-    excludedPaperKeys.clear()
-    lastRenderedPapers = []
-    root.querySelector('#reroast')?.classList.add('hidden')
+    clearRetrieved(root)
   }
   const runSearch = (): void => {
     roastAbort?.abort()
     roastAbort = null
     resetInputs()
-    void doSearch(searchQuery.value, searchResults, linksContainer)
+    void doSearch(searchQuery.value, searchResults, root, markDirty)
   }
   $<HTMLButtonElement>('#search-btn').addEventListener('click', runSearch)
   searchQuery.addEventListener('keydown', (e) => {
@@ -404,6 +414,13 @@ export function mountApp(root: HTMLElement): void {
       runSearch()
     }
   })
+
+  // Straight after a fresh ORCID login, pre-fill the verified researcher's own
+  // iD so their data is one "Retrieve data" click away and a roast shows the badge.
+  if (justLoggedIn) {
+    const session = getSession()
+    if (session) loadVerifiedProfile(root, session, searchResults)
+  }
 
   // Share controls.
   $<HTMLButtonElement>('#s-copy').addEventListener('click', () => {
@@ -432,7 +449,7 @@ export function mountApp(root: HTMLElement): void {
 
 // Text extracted from each uploaded document, kept in memory (keyed by its
 // file-list element) rather than dumped into the paste box. Collected into the
-// roast input at roast time; entries vanish when the file row is removed.
+// roast input at retrieve time; entries vanish when the file row is removed.
 const documentTexts = new WeakMap<HTMLElement, string>()
 
 async function processFiles(
@@ -440,6 +457,7 @@ async function processFiles(
   setCounter: () => void,
   list: HTMLElement,
   sources: Set<string>,
+  onChange: () => void,
 ): Promise<void> {
   for (const file of files) {
     const item = document.createElement('li')
@@ -463,6 +481,7 @@ async function processFiles(
     remove.addEventListener('click', () => {
       item.remove()
       sources.delete(file.name)
+      onChange()
     })
     top.append(status, name, size, remove)
     const reason = document.createElement('small')
@@ -479,6 +498,7 @@ async function processFiles(
       reason.hidden = false
       reason.textContent = `Extracted — ${extracted.length.toLocaleString('en-GB')} characters used in the roast`
       sources.add(file.name)
+      onChange()
     } catch (err) {
       status.textContent = '✗'
       item.classList.add('is-fail')
@@ -507,6 +527,7 @@ async function processFiles(
               sources.add(file.name)
               ocr.remove()
               setCounter()
+              onChange()
             })
             .catch((e: unknown) => {
               ocr.disabled = false
@@ -528,140 +549,57 @@ function collectDocumentTexts(root: HTMLElement): string[] {
     .filter((t): t is string => !!t && t.trim() !== '')
 }
 
-// --- manual link rows ---
+// --- URL rows (option 5) ---
 
-const linkTimers = new WeakMap<HTMLElement, number>()
-
-function addLinkRow(container: HTMLElement, value = ''): HTMLElement {
-  // Reuse the first empty row when a value is supplied (e.g. from a search pick).
-  if (value) {
-    for (const input of Array.from(
-      container.querySelectorAll<HTMLInputElement>('.link-row__input'),
-    )) {
-      if (!input.value.trim()) {
-        input.value = value
-        const reuse = input.closest('.link-row') as HTMLElement
-        updateLinkRow(reuse)
-        return reuse
-      }
-    }
-  }
+function addUrlRow(container: HTMLElement, onChange: () => void, value = ''): HTMLElement {
   const row = document.createElement('div')
-  row.className = 'link-row'
+  row.className = 'url-row'
   row.innerHTML =
-    '<div class="link-row__top">' +
-    '<input class="input link-row__input" type="url" placeholder="ORCID iD, a profile link, or any website URL" aria-label="Profile link or website URL" />' +
-    '<button class="link-row__remove" type="button" aria-label="Remove link">×</button></div>' +
-    '<div class="link-row__meta" hidden>' +
-    '<span class="link-row__tag"></span>' +
-    '<a class="link-row__inspect" target="_blank" rel="noopener">View record <span aria-hidden="true">↗</span></a>' +
-    '<span class="link-row__retrieve"></span></div>' +
-    '<small class="link-row__reason"></small>'
-  const input = row.querySelector<HTMLInputElement>('.link-row__input') as HTMLInputElement
+    '<div class="url-row__top">' +
+    '<input class="input url-row__input" type="url" placeholder="https://your-site.com, or any profile URL" aria-label="URL link" />' +
+    '<button class="url-row__remove" type="button" aria-label="Remove link">×</button></div>' +
+    '<div class="url-row__meta" hidden><span class="url-row__tag"></span></div>' +
+    '<small class="url-row__reason"></small>'
+  const input = row.querySelector<HTMLInputElement>('.url-row__input') as HTMLInputElement
   if (value) input.value = value
-  ;(row.querySelector('.link-row__remove') as HTMLButtonElement).addEventListener('click', () =>
-    row.remove(),
-  )
-  input.addEventListener('input', () => updateLinkRow(row))
-  input.addEventListener('blur', () => updateLinkRow(row))
+  ;(row.querySelector('.url-row__remove') as HTMLButtonElement).addEventListener('click', () => {
+    row.remove()
+    onChange()
+  })
+  input.addEventListener('input', () => {
+    updateUrlRow(row)
+    onChange()
+  })
+  input.addEventListener('blur', () => updateUrlRow(row))
   container.appendChild(row)
-  updateLinkRow(row)
+  updateUrlRow(row)
   return row
 }
 
-// A dedicated "Personal website" row: any value is treated as a website URL and
-// the whole site is crawled (forced `website` source), with the same status UI.
-function addWebsiteRow(container: HTMLElement, value = ''): HTMLElement {
-  const row = document.createElement('div')
-  row.className = 'link-row'
-  row.dataset.website = '1'
-  row.innerHTML =
-    '<div class="link-row__top">' +
-    '<input class="input link-row__input" type="url" placeholder="https://your-personal-site.com (whole site is scraped)" aria-label="Personal website URL" />' +
-    '<button class="link-row__remove" type="button" aria-label="Remove website">×</button></div>' +
-    '<div class="link-row__meta" hidden>' +
-    '<span class="link-row__tag"></span>' +
-    '<a class="link-row__inspect" target="_blank" rel="noopener">Open <span aria-hidden="true">↗</span></a>' +
-    '<span class="link-row__retrieve"></span></div>' +
-    '<small class="link-row__reason"></small>'
-  const input = row.querySelector<HTMLInputElement>('.link-row__input') as HTMLInputElement
-  if (value) input.value = value
-  ;(row.querySelector('.link-row__remove') as HTMLButtonElement).addEventListener('click', () =>
-    row.remove(),
-  )
-  input.addEventListener('input', () => updateLinkRow(row))
-  input.addEventListener('blur', () => updateLinkRow(row))
-  container.appendChild(row)
-  updateLinkRow(row)
-  return row
-}
-
-// Resolve a row's input to a source: website rows force the `website` (full-crawl)
-// source; ordinary link rows auto-detect.
-function rowSource(row: HTMLElement, value: string): { source: SourceKind; id: string } | null {
-  if (row.dataset.website === '1') return value ? { source: 'website', id: value } : null
-  return detectSource(value)
-}
-
-// Validate one row: show the source tag + record link immediately; debounce the
-// retrieval and surface a ✓/✗ status. (The roast re-retrieves authoritatively.)
-function updateLinkRow(row: HTMLElement): void {
-  const input = row.querySelector<HTMLInputElement>('.link-row__input') as HTMLInputElement
-  const meta = row.querySelector<HTMLElement>('.link-row__meta') as HTMLElement
-  const tag = row.querySelector<HTMLElement>('.link-row__tag') as HTMLElement
-  const inspect = row.querySelector<HTMLAnchorElement>('.link-row__inspect') as HTMLAnchorElement
-  const retrieve = row.querySelector<HTMLElement>('.link-row__retrieve') as HTMLElement
-  const reason = row.querySelector<HTMLElement>('.link-row__reason') as HTMLElement
+// Live feedback for a URL row: show the detected source tag, or flag an unusable
+// value. Retrieval itself happens at the Retrieve-data step.
+function updateUrlRow(row: HTMLElement): void {
+  const input = row.querySelector<HTMLInputElement>('.url-row__input') as HTMLInputElement
+  const meta = row.querySelector<HTMLElement>('.url-row__meta') as HTMLElement
+  const tag = row.querySelector<HTMLElement>('.url-row__tag') as HTMLElement
+  const reason = row.querySelector<HTMLElement>('.url-row__reason') as HTMLElement
   const v = input.value.trim()
   row.classList.remove('ok', 'bad')
   reason.textContent = ''
   if (!v) {
     meta.hidden = true
-    row.dataset.retrieved = ''
-    retrieve.className = 'link-row__retrieve'
-    retrieve.textContent = ''
     return
   }
-  const det = rowSource(row, v)
+  const det = detectSource(v)
   if (!det) {
     meta.hidden = true
     row.classList.add('bad')
     reason.textContent = UNSUPPORTED_LINK
-    row.dataset.retrieved = ''
     return
   }
   row.classList.add('ok')
   tag.textContent = SOURCE_LABELS[det.source]
-  inspect.href = recordUrl(det)
   meta.hidden = false
-  if (row.dataset.retrieved === v) return
-  window.clearTimeout(linkTimers.get(row))
-  retrieve.className = 'link-row__retrieve'
-  retrieve.innerHTML = ''
-  linkTimers.set(
-    row,
-    window.setTimeout(() => {
-      row.dataset.retrieved = v
-      retrieve.className = 'link-row__retrieve is-loading'
-      retrieve.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
-      void retrieveSource(config.workerUrl, det.source, det.id).then((res) => {
-        if (input.value.trim() !== v) return
-        if (res.ok && res.text) {
-          retrieve.className = 'link-row__retrieve is-ok'
-          retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
-          retrieve.title = ''
-          reason.textContent = ''
-        } else {
-          retrieve.className = 'link-row__retrieve is-bad'
-          retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
-          // Shown inline (not only as a hover tooltip) so the reason is visible
-          // on touch devices and to screen readers.
-          retrieve.title = res.reason ?? 'Retrieval failed.'
-          reason.textContent = res.reason ?? 'Retrieval failed.'
-        }
-      })
-    }, 500),
-  )
 }
 
 // --- search by name ---
@@ -676,33 +614,36 @@ function normaliseName(s: string): string {
     .trim()
 }
 
-// Lower score = closer match to the query. `full` is true when the candidate name
-// contains the entire query name (so those rank first and stay out of the foldout).
-function rankName(name: string, q: string, qTokens: string[]): { score: number; full: boolean } {
+// Lower score = closer match to the query.
+function rankName(name: string, q: string, qTokens: string[]): number {
   const n = normaliseName(name)
-  if (!q) return { score: 0, full: true }
-  if (n === q) return { score: 0, full: true }
+  if (!q) return 0
+  if (n === q) return 0
   const nTokens = n ? n.split(' ') : []
   const nSet = new Set(nTokens)
   const overlap = qTokens.filter((t) => nSet.has(t)).length
   const phrase = n.includes(q)
   const full = phrase || overlap === qTokens.length
   if (full) {
-    // Penalise extra name parts and length difference so the shortest exact-ish
-    // match (e.g. "Iliana Samara") beats longer ones ("Iliana Samara Hurtado…").
     const extra = Math.max(0, nTokens.length - qTokens.length)
-    return {
-      score: 1 + extra + (phrase ? 0 : 0.25) + Math.min(0.9, Math.abs(n.length - q.length) / 200),
-      full: true,
-    }
+    return 1 + extra + (phrase ? 0 : 0.25) + Math.min(0.9, Math.abs(n.length - q.length) / 200)
   }
-  return { score: 100 - overlap, full: false }
+  return 100 - overlap
+}
+
+// Set a numbered field's value and mark the retrieval stale.
+function fillNumberedField(root: HTMLElement, source: SourceKind, id: string): void {
+  const field = root.querySelector<HTMLInputElement>(`#in-${source}`)
+  if (!field) return
+  field.value = id
+  dirty = true
 }
 
 async function doSearch(
   query: string,
   results: HTMLElement,
-  linksContainer: HTMLElement,
+  root: HTMLElement,
+  onChange: () => void,
 ): Promise<void> {
   results.textContent = ''
   const q = query.trim()
@@ -721,54 +662,34 @@ async function doSearch(
   )
   results.textContent = ''
 
-  const found: Array<{ source: SourceKind; candidate: Candidate }> = []
+  const nq = normaliseName(query)
+  const qTokens = nq ? nq.split(' ') : []
   const notes: string[] = []
+  let anyGroup = false
+
   for (const { source, result } of settled) {
     if (!result.ok) {
       notes.push(`${SOURCE_LABELS[source]}: ${result.reason ?? 'search failed'}`)
       continue
     }
     const cands = result.candidates ?? []
-    if (!cands.length) notes.push(`${SOURCE_LABELS[source]}: no matches`)
-    for (const candidate of cands) found.push({ source, candidate })
+    if (!cands.length) {
+      notes.push(`${SOURCE_LABELS[source]}: no matches`)
+      continue
+    }
+    anyGroup = true
+    const ranked = cands
+      .map((candidate) => ({ candidate, score: rankName(candidate.name, nq, qTokens) }))
+      .sort((a, b) => a.score - b.score)
+      .map((r) => r.candidate)
+    results.appendChild(searchGroup(source, ranked, root, onChange))
   }
 
-  if (!found.length && !notes.length) {
+  if (!anyGroup) {
     const empty = document.createElement('p')
     empty.className = 'search__status'
     empty.textContent = 'No matches found.'
     results.appendChild(empty)
-    return
-  }
-
-  // Rank all candidates across sources by similarity to the query. Entries that
-  // contain the full name show first (closest/shortest first); the rest go under a
-  // single "see more" foldout. When nothing contains the full name, show the top 3.
-  const nq = normaliseName(query)
-  const qTokens = nq ? nq.split(' ') : []
-  const ranked = found
-    .map((f) => ({ ...f, ...rankName(f.candidate.name, nq, qTokens) }))
-    .sort((a, b) => a.score - b.score)
-  let primary = ranked.filter((r) => r.full)
-  let rest = ranked.filter((r) => !r.full)
-  if (!primary.length) {
-    primary = ranked.slice(0, 3)
-    rest = ranked.slice(3)
-  }
-  for (const r of primary) {
-    results.appendChild(searchResultRow(r.source, r.candidate, linksContainer))
-  }
-  if (rest.length) {
-    const more = document.createElement('details')
-    more.className = 'search__more'
-    const summary = document.createElement('summary')
-    summary.className = 'search__more-summary'
-    summary.textContent = 'See more options if this may not be you'
-    more.appendChild(summary)
-    for (const r of rest) {
-      more.appendChild(searchResultRow(r.source, r.candidate, linksContainer))
-    }
-    results.appendChild(more)
   }
   for (const note of notes) {
     const line = document.createElement('p')
@@ -778,143 +699,179 @@ async function doSearch(
   }
 }
 
-function searchResultRow(
+// A per-source picker. The most-similar candidate shows at the top (and is
+// selected into the numbered field straight away); any others hide behind a
+// "see more options" foldout. Selecting one moves it to the top, fills the
+// field, and folds the alternatives back in.
+function searchGroup(
   source: SourceKind,
-  candidate: Candidate,
-  linksContainer: HTMLElement,
+  candidates: Candidate[],
+  root: HTMLElement,
+  onChange: () => void,
 ): HTMLElement {
-  const row = document.createElement('div')
-  row.className = 'search__result'
+  const group = document.createElement('div')
+  group.className = 'search__group'
+  let chosen = candidates[0]
 
-  const checkbox = document.createElement('input')
-  checkbox.type = 'checkbox'
-  checkbox.className = 'search__check'
-  checkbox.setAttribute(
-    'aria-label',
-    candidate.affiliation ? `Select ${candidate.name} (${candidate.affiliation})` : `Select ${candidate.name}`,
-  )
-  const cbWrap = document.createElement('label')
-  cbWrap.className = 'search__checkwrap'
-  cbWrap.appendChild(checkbox)
+  const render = (): void => {
+    group.textContent = ''
 
-  const body = document.createElement('div')
-  body.className = 'search__body'
-  const name = document.createElement('span')
-  name.className = 'search__name'
-  name.textContent = candidate.name
-  body.appendChild(name)
-  if (candidate.affiliation) {
-    const affil = document.createElement('span')
-    affil.className = 'search__affil'
-    affil.textContent = candidate.affiliation
-    body.appendChild(affil)
-  }
-  body.addEventListener('click', () => {
-    checkbox.checked = !checkbox.checked
-    checkbox.dispatchEvent(new Event('change'))
-  })
+    const head = document.createElement('div')
+    head.className = 'search__group-head'
+    const tag = document.createElement('span')
+    tag.className = 'search__tag'
+    tag.textContent = SOURCE_LABELS[source]
+    const hint = document.createElement('span')
+    hint.className = 'search__group-hint'
+    hint.textContent = candidates.length > 1 ? 'Closest match — change below if needed' : 'Match'
+    head.append(tag, hint)
+    group.appendChild(head)
 
-  const tag = document.createElement('span')
-  tag.className = 'search__tag'
-  tag.textContent = SOURCE_LABELS[source]
-  const inspect = document.createElement('a')
-  inspect.className = 'search__inspect'
-  inspect.href = recordUrl({ source, id: candidate.id })
-  inspect.target = '_blank'
-  inspect.rel = 'noopener'
-  inspect.title = 'Open the public record in a new tab'
-  inspect.innerHTML = 'View record <span aria-hidden="true">↗</span>'
-  const status = document.createElement('span')
-  status.className = 'search__retrieve'
-  const meta = document.createElement('div')
-  meta.className = 'search__meta'
-  meta.append(tag, inspect, status)
+    group.appendChild(candidateRow(chosen))
 
-  const main = document.createElement('div')
-  main.className = 'search__main'
-  main.append(body, meta)
-  row.append(cbWrap, main)
-
-  // Ticking a result immediately adds its link row (in the background) and
-  // retrieves it, showing the status inline on the result.
-  let addedRow: HTMLElement | null = null
-  checkbox.addEventListener('change', () => {
-    if (checkbox.checked) {
-      row.classList.add('is-selected')
-      addedRow = addLinkRow(linksContainer, candidate.id)
-      status.className = 'search__retrieve is-loading'
-      status.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
-      checkbox.disabled = true
-      void retrieveSource(config.workerUrl, source, candidate.id).then((res) => {
-        checkbox.disabled = false
-        if (res.ok && res.text) {
-          status.className = 'search__retrieve is-ok'
-          status.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
-          status.title = ''
-        } else {
-          status.className = 'search__retrieve is-bad'
-          status.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
-          status.title = res.reason ?? 'Retrieval failed.'
-        }
-      })
-    } else {
-      row.classList.remove('is-selected')
-      if (addedRow) {
-        addedRow.remove()
-        addedRow = null
-      }
-      status.className = 'search__retrieve'
-      status.innerHTML = ''
-      status.title = ''
+    const rest = candidates.filter((c) => c !== chosen)
+    if (rest.length) {
+      const more = document.createElement('details')
+      more.className = 'search__more'
+      const summary = document.createElement('summary')
+      summary.className = 'search__more-summary'
+      summary.textContent = `See ${rest.length} more option${rest.length === 1 ? '' : 's'}`
+      more.appendChild(summary)
+      for (const c of rest) more.appendChild(candidateRow(c))
+      group.appendChild(more)
     }
-  })
-  return row
+  }
+
+  const candidateRow = (candidate: Candidate): HTMLElement => {
+    const row = document.createElement('div')
+    row.className = 'search__result'
+    if (candidate === chosen) row.classList.add('is-selected')
+
+    const mark = document.createElement('span')
+    mark.className = 'search__pick'
+    mark.setAttribute('aria-hidden', 'true')
+    mark.textContent = candidate === chosen ? '●' : '○'
+
+    const body = document.createElement('div')
+    body.className = 'search__body'
+    const name = document.createElement('span')
+    name.className = 'search__name'
+    name.textContent = candidate.name
+    body.appendChild(name)
+    if (candidate.affiliation) {
+      const affil = document.createElement('span')
+      affil.className = 'search__affil'
+      affil.textContent = candidate.affiliation
+      body.appendChild(affil)
+    }
+
+    const inspect = document.createElement('a')
+    inspect.className = 'search__inspect'
+    inspect.href = recordUrl({ source, id: candidate.id })
+    inspect.target = '_blank'
+    inspect.rel = 'noopener'
+    inspect.title = 'Open the public record in a new tab'
+    inspect.innerHTML = 'View record <span aria-hidden="true">↗</span>'
+    inspect.addEventListener('click', (e) => e.stopPropagation())
+
+    row.append(mark, body, inspect)
+    row.setAttribute('role', 'button')
+    row.tabIndex = 0
+    const choose = (): void => {
+      chosen = candidate
+      fillNumberedField(root, source, candidate.id)
+      onChange()
+      render()
+    }
+    row.addEventListener('click', choose)
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        choose()
+      }
+    })
+    return row
+  }
+
+  // Pre-select the closest match so Retrieve data works straight after searching.
+  fillNumberedField(root, source, chosen.id)
+  render()
+  return group
 }
 
-// On a fresh ORCID login, surface the verified researcher's own profile as a
-// pre-ticked result, reusing the search-pick flow: ticking adds the link row and
-// retrieves it, so the data is fed in and a roast shows the verified badge.
+// On a fresh ORCID login, pre-fill the ORCID field with the verified iD and note
+// it, so a single "Retrieve data" click loads the researcher's own record.
 function loadVerifiedProfile(
   root: HTMLElement,
   session: { orcid: string; name: string | null },
-  linksContainer: HTMLElement,
+  results: HTMLElement,
 ): void {
-  const results = root.querySelector<HTMLElement>('#search-results')
-  if (!results) return
-  const candidate: Candidate = {
-    id: session.orcid,
-    name: session.name ?? session.orcid,
-    affiliation: null,
-  }
+  fillNumberedField(root, 'orcid', session.orcid)
   const note = document.createElement('p')
   note.className = 'search__note'
-  note.textContent = 'Loaded from your verified ORCID — press Roast me.'
-  const row = searchResultRow('orcid', candidate, linksContainer)
-  results.replaceChildren(note, row)
-  const checkbox = row.querySelector<HTMLInputElement>('.search__check')
-  if (checkbox) {
-    checkbox.checked = true
-    checkbox.dispatchEvent(new Event('change'))
+  note.textContent = `Loaded your verified ORCID (${session.orcid}) — press Retrieve data.`
+  results.replaceChildren(note)
+}
+
+// --- retrieval ---
+
+interface RetrievedItem {
+  kind: 'source' | 'document'
+  source?: SourceKind
+  id?: string
+  label: string
+  ok: boolean
+  skipped?: boolean
+  reason?: string
+  text?: string
+  stats?: SourceStats
+  charts?: ChartData
+  papers?: ApiPaper[]
+}
+
+interface Retrieved {
+  items: RetrievedItem[]
+  pasted: string
+  texts: string[]
+  stats: SourceStats[]
+  charts: ChartData[]
+  mergedPapers: Paper[]
+  profile: string
+}
+
+// The last successful retrieval, reused by Roast me and the export. `dirty` is set
+// whenever an input changes, so the next roast re-retrieves instead of using stale
+// data. Cleared on a new search.
+let retrieved: Retrieved | null = null
+let dirty = true
+
+function clearRetrieved(root: HTMLElement): void {
+  retrieved = null
+  dirty = true
+  const overview = root.querySelector<HTMLElement>('#overview')
+  if (overview) {
+    overview.textContent = ''
+    overview.classList.add('hidden')
   }
+  root.querySelector('#export-data')?.setAttribute('hidden', '')
+  root.querySelector('#step-roast')?.classList.add('hidden')
+  root.querySelector('#reroast')?.classList.add('hidden')
+  root.querySelector('#stats-card')?.setAttribute('hidden', '')
+  root.querySelector('#charts-card')?.setAttribute('hidden', '')
+  excludedPaperKeys.clear()
+  lastRenderedPapers = []
 }
-
-// After Roast me / Download data, reduce the search results to just the ticked
-// entries (flattened out of any "see more" foldout); drop everything else.
-function collapseSearchToSelected(root: HTMLElement): void {
-  const results = root.querySelector<HTMLElement>('#search-results')
-  if (!results) return
-  const checked = Array.from(results.querySelectorAll<HTMLElement>('.search__result')).filter(
-    (r) => r.querySelector<HTMLInputElement>('.search__check')?.checked,
-  )
-  results.replaceChildren(...checked)
-}
-
-// --- roast ---
 
 // The OpenAlex author id a retrieved block reports (ORCID auto-embeds an OpenAlex
 // block; a standalone OpenAlex selection reports the same id), used to de-duplicate.
 function openalexKeyOf(text: string): string | null {
   return text.match(/OpenAlex:[^\n]*\((A\d+)\)/i)?.[1]?.toUpperCase() ?? null
+}
+
+// The OpenAlex author id a detected input points at (for skipping a redundant fetch).
+function openalexIdOf(detected: { source: SourceKind; id: string }): string | null {
+  if (detected.source !== 'openalex') return null
+  return detected.id.match(/A\d+/i)?.[0]?.toUpperCase() ?? null
 }
 
 // De-duplicate retrieved records: collapse blocks that describe the same OpenAlex
@@ -940,107 +897,91 @@ function dedupeRecords<T extends { text: string }>(items: T[]): T[] {
   return out
 }
 
-// The OpenAlex author id a link row points at (for skipping a redundant fetch).
-function openalexIdOf(detected: { source: SourceKind; id: string }): string | null {
-  if (detected.source !== 'openalex') return null
-  return detected.id.match(/A\d+/i)?.[0]?.toUpperCase() ?? null
+// Resolve every provided input to a concrete {source, id}. The numbered fields
+// force their source; URL rows auto-detect.
+function collectInputs(root: HTMLElement): Array<{ source: SourceKind; id: string }> {
+  const out: Array<{ source: SourceKind; id: string }> = []
+  for (const f of NUMBERED) {
+    const v = root.querySelector<HTMLInputElement>(`#in-${f.source}`)?.value.trim()
+    if (v) out.push({ source: f.source, id: v })
+  }
+  for (const el of Array.from(root.querySelectorAll<HTMLInputElement>('.url-row__input'))) {
+    const v = el.value.trim()
+    if (!v) continue
+    const det = detectSource(v)
+    if (det) out.push(det)
+  }
+  return out
 }
 
-// Retrieve every link row, updating its inline status. Non-OpenAlex sources are
-// fetched first (ORCID auto-embeds OpenAlex); a standalone OpenAlex is then fetched
-// only if that author wasn't already covered — so the same record is never fetched
-// twice. Returns the de-duplicated text/stats/charts for the roast.
-async function validateLinks(
-  root: HTMLElement,
-  sources: Set<string>,
-): Promise<{ texts: string[]; stats: SourceStats[]; charts: ChartData[]; papers: ApiPaper[] }> {
-  type Entry = {
-    retrieve: HTMLElement
-    reason: HTMLElement
-    detected: { source: SourceKind; id: string }
-  }
-  const entries: Entry[] = []
-  for (const row of Array.from(root.querySelectorAll<HTMLElement>('.link-row'))) {
-    const input = row.querySelector<HTMLInputElement>('.link-row__input')
-    const meta = row.querySelector<HTMLElement>('.link-row__meta')
-    const tag = row.querySelector<HTMLElement>('.link-row__tag')
-    const inspect = row.querySelector<HTMLAnchorElement>('.link-row__inspect')
-    const retrieve = row.querySelector<HTMLElement>('.link-row__retrieve')
-    const reason = row.querySelector<HTMLElement>('.link-row__reason')
-    if (!input || !meta || !tag || !inspect || !retrieve || !reason) continue
+// Retrieve every provided source, de-duplicating an OpenAlex record already
+// covered by an ORCID one. Documents (extracted client-side) and pasted text are
+// folded in. Returns the assembled bundle, or null if nothing was provided.
+async function retrieveInputs(root: HTMLElement, sources: Set<string>): Promise<Retrieved | null> {
+  const inputs = collectInputs(root)
+  const docTexts = collectDocumentTexts(root)
+  const pasted = root.querySelector<HTMLTextAreaElement>('#profile')?.value.trim() ?? ''
+  if (!inputs.length && !docTexts.length && !pasted) return null
 
-    row.classList.remove('ok', 'bad')
-    reason.textContent = ''
-    const value = input.value.trim()
-    if (!value) {
-      meta.hidden = true
-      continue
-    }
-    const detected = rowSource(row, value)
-    if (!detected) {
-      meta.hidden = true
-      row.classList.add('bad')
-      reason.textContent = UNSUPPORTED_LINK
-      continue
-    }
-    row.classList.add('ok')
-    tag.textContent = SOURCE_LABELS[detected.source]
-    inspect.href = recordUrl(detected)
-    meta.hidden = false
-    row.dataset.retrieved = value
-    entries.push({ retrieve, reason, detected })
-  }
+  type Slot = { detected: { source: SourceKind; id: string }; item: RetrievedItem }
+  const slots: Slot[] = inputs.map((detected) => ({
+    detected,
+    item: {
+      kind: 'source',
+      source: detected.source,
+      id: detected.id,
+      label: `${SOURCE_LABELS[detected.source]} — ${detected.id}`,
+      ok: false,
+    },
+  }))
 
-  // Retrieve in parallel where possible: non-OpenAlex rows are independent, so
-  // they fetch concurrently. OpenAlex rows run after them, so an ORCID's embedded
-  // OpenAlex record can cover a standalone OpenAlex row and skip its redundant
-  // fetch entirely.
-  type Fetched = { text: string; stats?: SourceStats; charts?: ChartData; papers?: ApiPaper[] }
-  const results = new Map<Entry, Fetched>()
   const coveredOpenAlex = new Set<string>()
-  const fetchEntry = async (entry: Entry): Promise<void> => {
-    const { retrieve, reason, detected } = entry
-    retrieve.className = 'link-row__retrieve is-loading'
-    retrieve.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
-    const res = await retrieveSource(config.workerUrl, detected.source, detected.id)
+  const fetchSlot = async (slot: Slot): Promise<void> => {
+    const res = await retrieveSource(config.workerUrl, slot.detected.source, slot.detected.id)
     if (res.ok && res.text) {
-      retrieve.className = 'link-row__retrieve is-ok'
-      retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
-      retrieve.title = ''
-      results.set(entry, { text: res.text, stats: res.stats, charts: res.charts, papers: res.papers })
-      sources.add(SOURCE_LABELS[detected.source])
+      slot.item.ok = true
+      slot.item.text = res.text
+      slot.item.stats = res.stats
+      slot.item.charts = res.charts
+      slot.item.papers = res.papers
+      sources.add(SOURCE_LABELS[slot.detected.source])
       const k = openalexKeyOf(res.text)
       if (k) coveredOpenAlex.add(k)
     } else {
-      retrieve.className = 'link-row__retrieve is-bad'
-      retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
-      // Shown inline (not only as a hover tooltip) so the reason is visible on
-      // touch devices and to screen readers.
-      retrieve.title = res.reason ?? 'Retrieval failed.'
-      reason.textContent = res.reason ?? 'Retrieval failed.'
+      slot.item.ok = false
+      slot.item.reason = res.reason ?? 'Retrieval failed.'
     }
   }
 
-  const nonOpenalex = entries.filter((e) => e.detected.source !== 'openalex')
-  const openalexRows = entries.filter((e) => e.detected.source === 'openalex')
-  await Promise.all(nonOpenalex.map(fetchEntry))
-  for (const entry of openalexRows) {
-    const aId = openalexIdOf(entry.detected)
+  // Non-OpenAlex first, so an ORCID's embedded OpenAlex record can cover a
+  // standalone OpenAlex input and skip its redundant fetch.
+  const nonOpenalex = slots.filter((s) => s.detected.source !== 'openalex')
+  const openalex = slots.filter((s) => s.detected.source === 'openalex')
+  await Promise.all(nonOpenalex.map(fetchSlot))
+  for (const slot of openalex) {
+    const aId = openalexIdOf(slot.detected)
     if (aId && coveredOpenAlex.has(aId)) {
-      entry.retrieve.className = 'link-row__retrieve is-ok'
-      entry.retrieve.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Retrieved'
-      entry.retrieve.title = 'Already included via the ORCID record'
-      sources.add(SOURCE_LABELS[entry.detected.source])
+      slot.item.ok = true
+      slot.item.skipped = true
+      slot.item.reason = 'Already included via the ORCID record'
+      sources.add(SOURCE_LABELS[slot.detected.source])
       continue
     }
-    await fetchEntry(entry)
+    await fetchSlot(slot)
   }
-  // Keep the non-OpenAlex-then-OpenAlex order so the assembled profile is stable.
-  const collected = [...nonOpenalex, ...openalexRows].flatMap((e) => {
-    const r = results.get(e)
-    return r ? [r] : []
-  })
-  const kept = dedupeRecords(collected)
+
+  const documentItems: RetrievedItem[] = Array.from(
+    root.querySelectorAll<HTMLElement>('.file-list__item.is-ok .file-list__name'),
+  ).map((el) => ({ kind: 'document', label: el.textContent ?? 'Document', ok: true }))
+
+  const items = [...slots.map((s) => s.item), ...documentItems]
+
+  // De-duplicate the retrieved text blocks and collect stats/charts/papers.
+  const kept = dedupeRecords(
+    slots
+      .map((s) => s.item)
+      .filter((it): it is RetrievedItem & { text: string } => !!it.text),
+  )
   const texts = kept.map((k) => k.text)
   const statsSeen = new Set<string>()
   const stats: SourceStats[] = []
@@ -1051,9 +992,160 @@ async function validateLinks(
     }
   }
   const charts = kept.flatMap((k) => (k.charts ? [k.charts] : []))
-  const papers = kept.flatMap((k) => k.papers ?? [])
-  return { texts, stats, charts, papers }
+  const allPapers = kept.flatMap((k) => k.papers ?? [])
+  const mergedPapers = mergePapers(allPapers)
+
+  const profile = [pasted, ...docTexts, ...texts, publicationsBlock(mergedPapers)]
+    .filter(Boolean)
+    .join('\n\n')
+    .trim()
+
+  return { items, pasted, texts, stats, charts, mergedPapers, profile }
 }
+
+// The Retrieve-data step: fetch, store, and render the compact overview.
+async function runRetrieve(root: HTMLElement, sources: Set<string>): Promise<Retrieved | null> {
+  const btn = root.querySelector<HTMLButtonElement>('#retrieve-data')
+  const overview = root.querySelector<HTMLElement>('#overview')
+  const original = btn?.textContent ?? 'Retrieve data'
+  if (btn) {
+    btn.disabled = true
+    btn.textContent = 'Retrieving…'
+  }
+  if (overview) {
+    overview.classList.remove('hidden')
+    overview.innerHTML = '<p class="overview__status"><span class="spinner" aria-hidden="true"></span> Retrieving your sources…</p>'
+  }
+  try {
+    const data = await retrieveInputs(root, sources)
+    if (!data) {
+      retrieved = null
+      dirty = true
+      if (overview) {
+        overview.classList.remove('hidden')
+        overview.innerHTML =
+          '<p class="overview__status">Nothing to retrieve yet — search for a name, or add a source above.</p>'
+      }
+      root.querySelector('#export-data')?.setAttribute('hidden', '')
+      root.querySelector('#step-roast')?.classList.add('hidden')
+      return null
+    }
+    retrieved = data
+    dirty = false
+    renderOverview(root, data)
+    root.querySelector('#export-data')?.removeAttribute('hidden')
+    root.querySelector('#step-roast')?.classList.remove('hidden')
+    return data
+  } finally {
+    if (btn) {
+      btn.disabled = false
+      btn.textContent = original
+    }
+  }
+}
+
+// Ensure a fresh retrieval exists before roasting (re-retrieving if the inputs
+// changed), so Roast me works even if Retrieve data was skipped.
+async function ensureRetrieved(root: HTMLElement, sources: Set<string>): Promise<Retrieved | null> {
+  if (retrieved && !dirty) return retrieved
+  return runRetrieve(root, sources)
+}
+
+// The GitHub public-repo count, parsed from the retrieved block ("Public repos: N").
+function githubRepoCount(text: string): number | null {
+  const m = text.match(/Public repos:\s*([\d,]+)/i)
+  return m ? Number(m[1].replace(/,/g, '')) : null
+}
+
+// Render the compact overview: headline counts (papers, projects, documents,
+// links) plus a per-source ✓/✗ status list.
+function renderOverview(root: HTMLElement, data: Retrieved): void {
+  const overview = root.querySelector<HTMLElement>('#overview')
+  if (!overview) return
+  overview.textContent = ''
+  overview.classList.remove('hidden')
+
+  const sourceItems = data.items.filter((it) => it.kind === 'source')
+  const okSources = sourceItems.filter((it) => it.ok)
+  const documents = data.items.filter((it) => it.kind === 'document')
+
+  const projects = okSources
+    .filter((it) => it.source === 'github' && it.text)
+    .reduce((n, it) => n + (githubRepoCount(it.text as string) ?? 0), 0)
+  const links = okSources.filter((it) => it.source === 'website').length
+
+  const chips: Array<{ n: string; label: string; sub: string }> = []
+  if (data.mergedPapers.length)
+    chips.push({ n: data.mergedPapers.length.toLocaleString('en-GB'), label: 'papers', sub: 'via ORCID · OpenAlex' })
+  if (projects)
+    chips.push({ n: projects.toLocaleString('en-GB'), label: `project${projects === 1 ? '' : 's'}`, sub: 'via GitHub' })
+  if (documents.length)
+    chips.push({ n: String(documents.length), label: `document${documents.length === 1 ? '' : 's'}`, sub: 'scanned' })
+  if (links)
+    chips.push({ n: String(links), label: `link${links === 1 ? '' : 's'}`, sub: 'scanned' })
+
+  const title = document.createElement('h3')
+  title.className = 'overview__title'
+  title.textContent = okSources.length || documents.length ? 'Retrieved data' : 'Nothing retrieved yet'
+  overview.appendChild(title)
+
+  if (chips.length) {
+    const grid = document.createElement('div')
+    grid.className = 'overview__chips'
+    for (const c of chips) {
+      const chip = document.createElement('div')
+      chip.className = 'overview__chip'
+      const num = document.createElement('span')
+      num.className = 'overview__chip-n'
+      num.textContent = c.n
+      const lab = document.createElement('span')
+      lab.className = 'overview__chip-label'
+      lab.textContent = c.label
+      const sub = document.createElement('span')
+      sub.className = 'overview__chip-sub'
+      sub.textContent = c.sub
+      chip.append(num, lab, sub)
+      grid.appendChild(chip)
+    }
+    overview.appendChild(grid)
+  }
+
+  const list = document.createElement('ul')
+  list.className = 'overview__list'
+  for (const it of data.items) {
+    const li = document.createElement('li')
+    li.className = `overview__row ${it.ok ? 'is-ok' : 'is-bad'}`
+    const mark = document.createElement('span')
+    mark.className = 'overview__mark'
+    mark.setAttribute('aria-hidden', 'true')
+    mark.textContent = it.ok ? '✓' : '✗'
+    const label = document.createElement('span')
+    label.className = 'overview__label'
+    label.textContent = it.label
+    const detail = document.createElement('span')
+    detail.className = 'overview__detail'
+    if (it.skipped) detail.textContent = it.reason ?? 'already included'
+    else if (!it.ok) detail.textContent = it.reason ?? 'retrieval failed'
+    else if (it.kind === 'document') detail.textContent = 'scanned'
+    else if (it.source === 'github') {
+      const n = it.text ? githubRepoCount(it.text) : null
+      detail.textContent = n != null ? `${n.toLocaleString('en-GB')} public repos` : 'retrieved'
+    } else if (it.papers?.length) detail.textContent = `${it.papers.length.toLocaleString('en-GB')} papers`
+    else detail.textContent = 'retrieved'
+    li.append(mark, label, detail)
+    list.appendChild(li)
+  }
+  if (list.children.length) overview.appendChild(list)
+
+  const hint = document.createElement('p')
+  hint.className = 'overview__hint'
+  hint.textContent = okSources.length || documents.length
+    ? 'Looks right? Choose an intensity and roast. Wrong match? Fix a field above and retrieve again.'
+    : 'No sources came back — check the links above and retrieve again.'
+  overview.appendChild(hint)
+}
+
+// --- papers merge/de-dupe ---
 
 // A few common words ignored when comparing titles, so a preprint and its journal
 // version (which often differ by a word or two) collapse to one work.
@@ -1264,9 +1356,7 @@ function renderProfiles(root: HTMLElement): void {
   if (!sub || !list) return
   list.textContent = ''
   const seen = new Set<string>()
-  for (const input of Array.from(root.querySelectorAll<HTMLInputElement>('.link-row__input'))) {
-    const detected = detectSource(input.value.trim())
-    if (!detected) continue
+  for (const detected of collectInputs(root)) {
     const url = recordUrl(detected)
     if (seen.has(url)) continue
     seen.add(url)
@@ -1456,7 +1546,7 @@ function renderRunMeta(
 }
 
 // Append the "ORCID-verified" badge to the Name row when the logged-in researcher's
-// iD matches an ORCID iD among the selected link rows. Cosmetic and session-only.
+// iD matches the ORCID field. Cosmetic and session-only.
 function maybeAddVerifiedBadge(root: HTMLElement): void {
   const nameEl = root.querySelector<HTMLElement>('#p-name')
   if (!nameEl) return
@@ -1465,11 +1555,8 @@ function maybeAddVerifiedBadge(root: HTMLElement): void {
   if (!session) return
   const me = normaliseOrcid(session.orcid)
   if (!me) return
-  const selected = Array.from(root.querySelectorAll<HTMLInputElement>('.link-row__input'))
-    .map((i) => detectSource(i.value))
-    .filter((d): d is { source: SourceKind; id: string } => d?.source === 'orcid')
-    .map((d) => normaliseOrcid(d.id))
-  if (!selected.includes(me)) return
+  const field = root.querySelector<HTMLInputElement>('#in-orcid')?.value ?? ''
+  if (normaliseOrcid(field) !== me) return
   const badge = document.createElement('span')
   badge.className = 'badge'
   badge.textContent = `✓ ${copy.verifiedBadge}`
@@ -1507,11 +1594,33 @@ function renderStatsCard(root: HTMLElement, stats: SourceStats[]): void {
   card.removeAttribute('hidden')
 }
 
-// Zero-cost demo: render the saved fake researcher fully client-side.
-function showDemo(root: HTMLElement, textarea: HTMLTextAreaElement, output: HTMLElement): void {
+// Zero-cost demo: render the saved fake researcher fully client-side, and seed the
+// retrieval bundle so a re-roast runs live on the demo profile.
+function showDemo(root: HTMLElement, output: HTMLElement): void {
   roastAbort?.abort()
   roastAbort = null
-  textarea.value = demoResearcher.profile
+  const textarea = root.querySelector<HTMLTextAreaElement>('#profile')
+  if (textarea) {
+    textarea.value = demoResearcher.profile
+    textarea.dispatchEvent(new Event('input'))
+  }
+  retrieved = {
+    items: [{ kind: 'document', label: `${demoResearcher.name} — simulated demo`, ok: true }],
+    pasted: demoResearcher.profile,
+    texts: [],
+    stats: [demoResearcher.stats],
+    charts: [demoResearcher.charts],
+    mergedPapers: [],
+    profile: demoResearcher.profile,
+  }
+  dirty = false
+  root.querySelector('#step-roast')?.classList.remove('hidden')
+  const overview = root.querySelector<HTMLElement>('#overview')
+  if (overview) {
+    overview.classList.remove('hidden')
+    overview.innerHTML =
+      '<h3 class="overview__title">Sample data</h3><p class="overview__hint">A fully invented researcher — press Roast me to generate a live roast, or edit the pasted text.</p>'
+  }
   output.className = 'output'
   output.textContent = demoResearcher.roast
   renderResult(root, {
@@ -1538,12 +1647,9 @@ function showDemo(root: HTMLElement, textarea: HTMLTextAreaElement, output: HTML
 }
 
 async function runRoast(
-  textarea: HTMLTextAreaElement,
   root: HTMLElement,
   output: HTMLElement,
   button: HTMLButtonElement,
-  sources: Set<string>,
-  manual: HTMLDetailsElement,
   regenerate = false,
 ): Promise<void> {
   if (!config.workerUrl) {
@@ -1558,7 +1664,6 @@ async function runRoast(
 
   const started = performance.now()
   button.disabled = true
-  collapseSearchToSelected(root)
   root.querySelector('#share')?.classList.add('hidden')
   root.querySelector('#sec-personalia')?.classList.add('hidden')
   root.querySelector('#sec-papers')?.classList.add('hidden')
@@ -1567,25 +1672,16 @@ async function runRoast(
   root.querySelector('#reroast')?.classList.add('hidden')
   root.querySelector('#stats-card')?.setAttribute('hidden', '')
   root.querySelector('#charts-card')?.setAttribute('hidden', '')
-  statusOut(output, 'Checking links…')
 
-  const {
-    texts: linkTexts,
-    stats: linkStats,
-    charts: linkCharts,
-    papers: linkPapers,
-  } = await validateLinks(root, sources)
-  const docTexts = collectDocumentTexts(root)
-  // One authoritative, de-duplicated publications list, appended to the profile so
-  // the model never sees the same work twice with conflicting citation counts.
-  const mergedPapers = mergePapers(linkPapers)
-  const profile = [textarea.value.trim(), ...docTexts, ...linkTexts, publicationsBlock(mergedPapers)]
-    .filter(Boolean)
-    .join('\n\n')
-    .trim()
+  // Make sure we have a fresh retrieval (re-retrieving if the inputs changed).
+  let data = retrieved
+  if (!data || dirty) {
+    statusOut(output, 'Retrieving sources…')
+    data = await ensureRetrieved(root, sourcesRef)
+  }
+  const profile = data?.profile ?? ''
   if (!profile) {
-    manual.open = true
-    placeholderOut(output, 'Search for a name above, or add a link or paste text to get started.')
+    placeholderOut(output, 'Search for a name above, or add a source, then Retrieve data.')
     button.disabled = false
     return
   }
@@ -1595,6 +1691,10 @@ async function runRoast(
     return
   }
   statusOut(output, 'Roasting…')
+
+  const mergedPapers = data?.mergedPapers ?? []
+  const linkStats = data?.stats ?? []
+  const linkCharts = data?.charts ?? []
 
   // Papers the user has marked as not theirs (from a previous render): sent as a
   // trusted exclusion list so the model ignores mis-attributed works.
@@ -1617,13 +1717,15 @@ async function runRoast(
     })
 
     if (!response.ok) {
-      const data = (await response.json().catch(() => null)) as
+      const errData = (await response.json().catch(() => null)) as
         | { error?: string; message?: string }
         | null
       const plain = new Set(['too_large', 'bad_request', 'rate_limited'])
       placeholderOut(
         output,
-        data && data.error && plain.has(data.error) && data.message ? data.message : randomError(),
+        errData && errData.error && plain.has(errData.error) && errData.message
+          ? errData.message
+          : randomError(),
       )
       return
     }
@@ -1760,7 +1862,11 @@ async function runRoast(
   }
 }
 
-// --- data export (kept from before; lives in the manual disclosure) ---
+// The upload provenance set is owned by mountApp; runRoast needs it to re-retrieve.
+// A module-level handle avoids threading it through every call.
+let sourcesRef: Set<string> = new Set()
+
+// --- data export ---
 
 function chartsToMarkdown(charts: ChartData): string {
   const out: string[] = []
@@ -1780,93 +1886,61 @@ function chartsToMarkdown(charts: ChartData): string {
   return out.length ? out.join('\n') : '_None._'
 }
 
-async function exportRetrievedData(
-  root: HTMLElement,
-  textarea: HTMLTextAreaElement,
-  exportBtn: HTMLButtonElement,
-): Promise<void> {
+// Export the already-retrieved data as Markdown. Retrieve first if needed.
+async function exportRetrievedData(exportBtn: HTMLButtonElement): Promise<void> {
+  const data = retrieved
+  if (!data) {
+    const prev = exportBtn.textContent
+    exportBtn.textContent = 'Retrieve data first'
+    setTimeout(() => (exportBtn.textContent = prev), 1600)
+    return
+  }
   const original = exportBtn.textContent
   exportBtn.disabled = true
-  exportBtn.textContent = 'Retrieving…'
-  collapseSearchToSelected(root)
+  exportBtn.textContent = 'Preparing…'
   try {
     const parts: string[] = [
       '# Retrieved data',
       '',
-      `_Generated ${new Date().toISOString()} — the data the tool retrieves and feeds to the roast._`,
+      '_The data the tool retrieved and feeds to the roast._',
       '',
       '## Pasted / uploaded input',
       '',
     ]
-    const pasted = textarea.value.trim()
-    parts.push(pasted ? '```\n' + pasted + '\n```' : '_None._', '')
+    parts.push(data.pasted ? '```\n' + data.pasted + '\n```' : '_None._', '')
 
-    const inputs = Array.from(root.querySelectorAll<HTMLInputElement>('.link-row__input'))
-      .map((i) => i.value.trim())
-      .filter(Boolean)
-
-    if (!inputs.length) {
-      parts.push('## Sources', '', '_No profile links entered — add links and export again._')
+    const sourceItems = data.items.filter((it) => it.kind === 'source')
+    if (!sourceItems.length) {
+      parts.push('## Sources', '', '_No profile links or IDs entered._', '')
     } else {
-      type Row = {
-        value: string
-        detected: { source: SourceKind; id: string } | null
-        result: RetrieveResult | null
-        skipped: boolean
-      }
-      const rows: Row[] = inputs.map((value) => ({
-        value,
-        detected: detectSource(value),
-        result: null,
-        skipped: false,
-      }))
-      // Fetch non-OpenAlex first; fetch a standalone OpenAlex only if not already
-      // covered by an ORCID's embedded record — so it isn't retrieved twice.
-      const order = rows
-        .map((_, i) => i)
-        .sort(
-          (a, b) =>
-            (rows[a].detected?.source === 'openalex' ? 1 : 0) -
-            (rows[b].detected?.source === 'openalex' ? 1 : 0),
-        )
-      const covered = new Set<string>()
-      for (const i of order) {
-        const r = rows[i]
-        if (!r.detected) continue
-        const aId = openalexIdOf(r.detected)
-        if (aId && covered.has(aId)) {
-          r.skipped = true
-          continue
-        }
-        r.result = await retrieveSource(config.workerUrl, r.detected.source, r.detected.id, true)
-        if (r.result.ok && r.result.text) {
-          const k = openalexKeyOf(r.result.text)
-          if (k) covered.add(k)
-        }
-      }
-      for (const r of rows) {
-        if (!r.detected) {
-          parts.push(`## ${r.value}`, '', '_Not a supported link._', '')
-          continue
-        }
-        parts.push(`## ${r.detected.source} — ${r.detected.id}`, '')
-        if (r.skipped) {
+      for (const it of sourceItems) {
+        parts.push(`## ${it.label}`, '')
+        if (it.skipped) {
           parts.push('_Already included via the ORCID record above — not fetched again._', '')
           continue
         }
-        const result = r.result
-        if (!result || !result.ok || !result.text) {
-          parts.push(`_Retrieval failed: ${result?.reason ?? 'unknown error'}._`, '')
+        if (!it.ok || !it.text) {
+          parts.push(`_Retrieval failed: ${it.reason ?? 'unknown error'}._`, '')
           continue
         }
-        parts.push('### Retrieved text (fed to the roast)', '', '```\n' + result.text + '\n```', '')
-        if (result.stats) {
+        parts.push('### Retrieved text (fed to the roast)', '', '```\n' + it.text + '\n```', '')
+        if (it.stats) {
           parts.push('### Stats', '', '| Metric | Value |', '|---|---|')
-          for (const e of result.stats.entries) parts.push(`| ${e.label} | ${e.value} |`)
+          for (const e of it.stats.entries) parts.push(`| ${e.label} | ${e.value} |`)
           parts.push('')
         }
-        if (result.charts) parts.push('### Charts data', '', chartsToMarkdown(result.charts), '')
+        if (it.charts) parts.push('### Charts data', '', chartsToMarkdown(it.charts), '')
       }
+    }
+
+    if (data.mergedPapers.length) {
+      parts.push('## Publications (de-duplicated across sources)', '')
+      for (const p of data.mergedPapers) {
+        const meta = [p.venue, p.year != null ? String(p.year) : null].filter(Boolean).join(', ')
+        const cites = p.citations != null ? ` — ${p.citations} citations` : ''
+        parts.push(`- "${p.title}"${meta ? ` (${meta})` : ''}${cites}`)
+      }
+      parts.push('')
     }
     downloadText(parts.join('\n'), 'retrieved-data.md')
   } finally {

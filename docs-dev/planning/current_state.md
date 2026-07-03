@@ -9,15 +9,21 @@ This file records what *is* (current reality). The binding design canon is `docs
 ## Systems
 
 - **Build/dev scaffold** — Vite + TypeScript static site, building to `dist/`.
-- **Front-end shell** — `src/ui.ts` renders the **"Focused Console" UI (Direction A
-  redesign)**: two cards — a numbered 2-step **Roast input** (a search-by-name hero
-  as the primary input + a collapsible "manual" `<details>` with three groups: a
-  dedicated **Personal website** field (forced `website` source = full same-site
-  crawl, "+ Add website" for more), **Profile links** (ORCID/OpenAlex/GitHub/SS/DBLP),
-  and **paste text or upload documents** (PDF/Word/ODT/txt/md via `src/extract.ts`;
-  extracted **in memory** with a ✓ + char count, fed to the roast without filling
-  the paste box — `documentTexts` WeakMap / `collectDocumentTexts`))
-  and a **Roast output** card. The output is now **four sections**
+- **Front-end shell** — `src/ui.ts` renders a guided **search → retrieve → roast**
+  input flow (`054`): a **search-by-name hero** (ORCID/OpenAlex/GitHub) whose results
+  are grouped **per source** — the closest match on top, the rest behind a per-source
+  "see more options" foldout; picking one fills that source's field, promotes it to
+  the top and folds the alternatives back in. Below is a **numbered list of five input
+  options** (1 ORCID, 2 OpenAlex, 3 GitHub, 4 upload documents/paste, 5 URL link),
+  then a discrete **Retrieve data** button that fetches everything (de-duplicating an
+  OpenAlex record already covered by ORCID) and shows a **compact overview** — papers
+  via ORCID/OpenAlex, projects via GitHub, documents + links scanned, with per-source
+  ✓/✗. The **Roast settings** step (intensity + format) and the **Roast me** button
+  appear only after a retrieval; changing any input marks the retrieval stale so the
+  next roast re-retrieves. Documents are extracted **in memory** (PDF/Word/ODT/txt/md
+  via `src/extract.ts`; `documentTexts` WeakMap / `collectDocumentTexts`) and fed to
+  the roast without filling the paste box. The **Roast output** card's output is
+  **four sections**
   (`036`, spec v1.22): **Personalia** (name, position, current/previous
   affiliations, research domain, focus keywords, education + Profiles/Grants/Awards
   subsections), **Profile** (the streamed roast with a caret), **Papers** (main
@@ -123,19 +129,17 @@ This file records what *is* (current reality). The binding design canon is `docs
   actions pending:** register the ORCID OAuth app, set the two Cloudflare secrets
   and `ORCID_CLIENT_ID`, then verify the live round-trip against ORCID sandbox
   (the build container cannot reach `orcid.org`).
-- **Front end redesigned to "Focused Console" (Direction A)** from a design handoff,
-  shipped as `feat:` commits (not numbered prompts); `src/ui.ts` + `src/style.css`
-  rewritten, `src/charts.ts` gained a 5th "Top venues" chart, `032_pdf_ocr` added
-  the OCR fallback. Key UX: search-by-name is primary; results are a **single list
-  ranked by name similarity** (full-name matches shown; the rest under one "See more
-  options if this may not be you" foldout); ticking a result auto-adds a link row
-  and auto-retrieves with inline ✓/✗ + a "View record" link; manual links/paste are
-  in a `<details>`. **Download data** sits beside **Roast me**; pressing either
-  collapses results to the selected entries. Personalia "Sources" shows platform
-  names. When both an ORCID and the same OpenAlex are selected, the redundant
-  OpenAlex is **de-duplicated and not re-fetched** (ORCID auto-embeds it; non-OpenAlex
-  sources fetched first, standalone OpenAlex skipped if already covered).
-  **The spec's UI/presentation sections predate this redesign — treat the code as
+- **Front-end input flow reshaped to search → retrieve → roast (`054`)**, superseding
+  the earlier "Focused Console" input surface (search-by-name is still primary, but
+  results are now grouped **per source** with a per-source "see more options" foldout
+  rather than one similarity-ranked list; the manual `<details>` is replaced by a
+  **numbered 1–5 options** list; a discrete **Retrieve data** step shows a **compact
+  overview** and only then reveals **Roast settings + Roast me**). `src/charts.ts`'s
+  5th "Top venues" chart and the `032_pdf_ocr` OCR fallback are unchanged. When both
+  an ORCID and the same OpenAlex are provided, the redundant OpenAlex is
+  **de-duplicated and not re-fetched** (ORCID auto-embeds it; non-OpenAlex sources
+  fetched first, standalone OpenAlex skipped if already covered).
+  **The spec's UI/presentation sections predate these redesigns — treat the code as
   truth for the front-end UI; a spec refresh of those sections is pending.**
 - First version complete and live: front end at
   `https://eelkedevries.com/roast-a-researcher/`, Worker at
@@ -232,3 +236,5 @@ _A running list of completed prompts, newest last. Add the prompt filename as ea
 - Front-end "Focused Console" redesign + UX refinements (feat commits, not prompts):
   similarity-ranked single search list, auto-add/auto-retrieve on select, Download
   data button, collapse-to-selected, OpenAlex de-dup + skip-redundant-fetch.
+- 054_search_and_retrieve_input_ui.md (per-source search groups; numbered 1–5 input
+  options; discrete Retrieve-data step with a compact overview; roast revealed after).
