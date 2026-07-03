@@ -23,9 +23,10 @@ This file records what *is* (current reality). The binding design canon is `docs
   shows a **compact overview** — documents + links as counts, and **papers and projects
   as fold-out checklists** where each paper/GitHub repo is a ticked entry the user can
   deselect to drop it from the roast (papers via the publications block + trusted
-  `exclude` list, repos by filtering the GitHub block) — plus a per-source ✓/✗ list.
-  The roast **profile is assembled at roast time** from the stored bundle, so paper/
-  project de-selections apply without re-fetching. The **Roast settings** step
+  `exclude` list, repos by filtering the GitHub block). Paper entries are two lines
+  (title, then abbreviated venue · year · citations); only retrieval **failures** are
+  listed (no per-source success rows). The roast **profile is assembled at roast time**
+  from the stored bundle, so paper/project de-selections apply without re-fetching. The **Roast settings** step
   (intensity + format) and the **Roast me** button appear only after a retrieval;
   changing any input marks the retrieval stale so the next roast re-retrieves.
   Documents are extracted **in memory** (PDF/Word/ODT/txt/md via `src/extract.ts`;

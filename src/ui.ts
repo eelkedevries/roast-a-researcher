@@ -1151,18 +1151,54 @@ async function ensureRetrieved(root: HTMLElement, sources: Set<string>): Promise
   return runRetrieve(root, sources)
 }
 
-// The GitHub public-repo count, parsed from the retrieved block ("Public repos: N").
-function githubRepoCount(text: string): number | null {
-  const m = text.match(/Public repos:\s*([\d,]+)/i)
-  return m ? Number(m[1].replace(/,/g, '')) : null
+// Compact, ISO-4-ish journal-word abbreviations for the papers foldout's second line.
+const VENUE_ABBR: Record<string, string> = {
+  journal: 'J.', international: 'Int.', national: 'Natl.',
+  proceedings: 'Proc.', conference: 'Conf.', symposium: 'Symp.', workshop: 'Worksh.',
+  transactions: 'Trans.', review: 'Rev.', reviews: 'Rev.', letters: 'Lett.',
+  research: 'Res.', report: 'Rep.', reports: 'Rep.', bulletin: 'Bull.', annual: 'Annu.',
+  science: 'Sci.', sciences: 'Sci.', scientific: 'Sci.', advances: 'Adv.', current: 'Curr.', frontiers: 'Front.',
+  cognitive: 'Cogn.', cognition: 'Cogn.', neuroscience: 'Neurosci.', neurosciences: 'Neurosci.',
+  psychology: 'Psychol.', psychological: 'Psychol.', perception: 'Percept.',
+  communications: 'Commun.', communication: 'Commun.', vision: 'Vis.', visual: 'Vis.',
+  experimental: 'Exp.', behavioural: 'Behav.', behavioral: 'Behav.', behaviour: 'Behav.', behavior: 'Behav.',
+  computational: 'Comput.', computer: 'Comput.', computing: 'Comput.',
+  systems: 'Syst.', system: 'Syst.', network: 'Netw.', networks: 'Netw.', networked: 'Netw.',
+  services: 'Serv.', information: 'Inf.', archiving: 'Arch.',
+  university: 'Univ.', association: 'Assoc.', society: 'Soc.', academy: 'Acad.',
+  european: 'Eur.', american: 'Am.', british: 'Br.', royal: 'R.',
+  medicine: 'Med.', medical: 'Med.', biology: 'Biol.', biological: 'Biol.',
+  physics: 'Phys.', physical: 'Phys.', chemistry: 'Chem.', chemical: 'Chem.',
+  engineering: 'Eng.', mathematics: 'Math.', mathematical: 'Math.', applied: 'Appl.',
+}
+const VENUE_DROP = new Set(['of', 'the', 'for', 'and', 'in', 'on', 'a', 'an', 'de', 'het', 'van', 'een'])
+
+// Abbreviate a journal/venue name: prefer a trailing acronym in parentheses
+// (e.g. "… (DANS)" → "DANS"), otherwise abbreviate common words and drop stop-words.
+function abbreviateVenue(venue: string): string {
+  const v = venue.trim()
+  if (!v) return ''
+  const paren = v.match(/\(([A-Za-z][A-Za-z0-9&.\-/]{1,14})\)\s*$/)
+  if (paren && /[A-Z]{2,}/.test(paren[1])) return paren[1]
+  const out = v
+    .replace(/\([^)]*\)/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .map((w) => {
+      const key = w.toLowerCase().replace(/[^a-z]/g, '')
+      if (!key || VENUE_DROP.has(key)) return ''
+      return VENUE_ABBR[key] ?? w
+    })
+    .filter(Boolean)
+  return out.join(' ') || v
 }
 
-// A compact line describing a paper, for the papers foldout.
-function paperEntryText(p: Paper): string {
-  const bits = [p.venue, p.year != null ? String(p.year) : null].filter(Boolean).join(', ')
+// The second line for a paper entry: abbreviated venue · year · citations.
+function paperMeta(p: Paper): string {
+  const venue = p.venue ? abbreviateVenue(p.venue) : ''
+  const year = p.year != null ? String(p.year) : ''
   const cites = p.citations != null ? `${p.citations} citation${p.citations === 1 ? '' : 's'}` : ''
-  const meta = [bits, cites].filter(Boolean).join(' · ')
-  return meta ? `${p.title} — ${meta}` : (p.title ?? '')
+  return [venue, year, cites].filter(Boolean).join(' · ')
 }
 
 // A fold-out headline count whose entries each carry a checkbox (ticked = kept in
@@ -1170,7 +1206,7 @@ function paperEntryText(p: Paper): string {
 function selectionFoldout(
   label: string,
   sub: string,
-  entries: Array<{ text: string; initial: boolean; onToggle: (on: boolean) => void }>,
+  entries: Array<{ primary: string; secondary?: string; initial: boolean; onToggle: (on: boolean) => void }>,
 ): HTMLElement {
   const details = document.createElement('details')
   details.className = 'overview__group'
@@ -1212,7 +1248,16 @@ function selectionFoldout(
     cb.checked = e.initial
     const span = document.createElement('span')
     span.className = 'overview__entry-text'
-    span.textContent = e.text
+    const primary = document.createElement('span')
+    primary.className = 'overview__entry-title'
+    primary.textContent = e.primary
+    span.appendChild(primary)
+    if (e.secondary) {
+      const meta = document.createElement('span')
+      meta.className = 'overview__entry-meta'
+      meta.textContent = e.secondary
+      span.appendChild(meta)
+    }
     cb.addEventListener('change', () => {
       e.onToggle(cb.checked)
       li.classList.toggle('is-off', !cb.checked)
@@ -1257,7 +1302,8 @@ function renderOverview(root: HTMLElement, data: Retrieved): void {
         'papers',
         'via ORCID · OpenAlex',
         data.mergedPapers.map((p) => ({
-          text: paperEntryText(p),
+          primary: p.title ?? '(untitled)',
+          secondary: paperMeta(p),
           initial: !!p.title && !excludedPaperKeys.has(paperKey(p.title)),
           onToggle: (on) => {
             const k = paperKey(p.title ?? '')
@@ -1276,7 +1322,7 @@ function renderOverview(root: HTMLElement, data: Retrieved): void {
         'projects',
         'via GitHub',
         repos.map((r) => ({
-          text: r.display,
+          primary: r.display,
           initial: !excludedRepos.has(r.name),
           onToggle: (on) => {
             if (on) excludedRepos.delete(r.name)
@@ -1314,39 +1360,22 @@ function renderOverview(root: HTMLElement, data: Retrieved): void {
     overview.appendChild(grid)
   }
 
-  const list = document.createElement('ul')
-  list.className = 'overview__list'
-  for (const it of data.items) {
-    const li = document.createElement('li')
-    li.className = `overview__row ${it.ok ? 'is-ok' : 'is-bad'}`
-    const mark = document.createElement('span')
-    mark.className = 'overview__mark'
-    mark.setAttribute('aria-hidden', 'true')
-    mark.textContent = it.ok ? '✓' : '✗'
-    const label = document.createElement('span')
-    label.className = 'overview__label'
-    label.textContent = it.label
-    const detail = document.createElement('span')
-    detail.className = 'overview__detail'
-    if (it.skipped) detail.textContent = it.reason ?? 'already included'
-    else if (!it.ok) detail.textContent = it.reason ?? 'retrieval failed'
-    else if (it.kind === 'document') detail.textContent = 'scanned'
-    else if (it.source === 'github') {
-      const n = it.text ? githubRepoCount(it.text) : null
-      detail.textContent = n != null ? `${n.toLocaleString('en-GB')} public repos` : 'retrieved'
-    } else if (it.papers?.length) detail.textContent = `${it.papers.length.toLocaleString('en-GB')} papers`
-    else detail.textContent = 'retrieved'
-    li.append(mark, label, detail)
-    list.appendChild(li)
+  // Surface only failures (retrieval errors); successful sources are already
+  // represented by the counts above, so their rows are omitted to reduce clutter.
+  const failed = sourceItems.filter((it) => !it.ok && !it.skipped)
+  if (failed.length) {
+    const note = document.createElement('p')
+    note.className = 'overview__fail'
+    note.textContent =
+      'Could not retrieve: ' +
+      failed.map((it) => `${it.label} (${it.reason ?? 'failed'})`).join('; ')
+    overview.appendChild(note)
+  } else if (!okSources.length && !documents.length) {
+    const note = document.createElement('p')
+    note.className = 'overview__fail'
+    note.textContent = 'No sources came back — check the fields above and retrieve again.'
+    overview.appendChild(note)
   }
-  if (list.children.length) overview.appendChild(list)
-
-  const hint = document.createElement('p')
-  hint.className = 'overview__hint'
-  hint.textContent = okSources.length || documents.length
-    ? 'Looks right? Choose an intensity and roast. Wrong match? Fix a field above and retrieve again.'
-    : 'No sources came back — check the links above and retrieve again.'
-  overview.appendChild(hint)
 }
 
 // --- papers merge/de-dupe ---

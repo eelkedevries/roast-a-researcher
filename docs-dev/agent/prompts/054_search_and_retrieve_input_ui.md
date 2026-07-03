@@ -53,6 +53,12 @@ From review of the first cut:
   trusted `exclude` list; repositories by removing their line from the GitHub block.
   Exclusions are applied when the profile is assembled at roast time, so toggling a
   box needs no re-fetch, and they persist across re-roasts (cleared on a new search).
+- **Compact papers, no per-source list.** Each paper entry is two lines — the title,
+  then an abbreviated venue · year · citations (ISO-4-ish word abbreviations; a
+  trailing acronym in parentheses is preferred, e.g. "… (DANS)" → "DANS"). The
+  per-source ✓ status list and the "Looks right?" hint are dropped (they duplicated
+  the counts and showed a raw per-source paper total that disagreed with the
+  de-duplicated headline); only retrieval **failures** are surfaced.
 
 ## Acceptance criteria
 
