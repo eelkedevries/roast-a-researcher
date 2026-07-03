@@ -30,10 +30,24 @@ export async function extractText(file: File): Promise<string> {
   }
 }
 
-async function extractPdf(file: File): Promise<string> {
+// Load pdf.js and wire its worker through Vite's `?worker` bundling. Vite emits the
+// worker as a normal hashed `.js` chunk, which every static host serves with a
+// correct JavaScript MIME type — unlike the raw `pdf.worker.min.mjs`, which some
+// hosts serve as octet-stream, silently breaking the module worker so every PDF
+// fails. A fresh worker is created per call and terminated by the caller.
+async function pdfjsWithWorker(): Promise<{
+  pdfjs: typeof import('pdfjs-dist')
+  worker: Worker
+}> {
   const pdfjs = await import('pdfjs-dist')
-  const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
-  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+  const PdfWorker = (await import('pdfjs-dist/build/pdf.worker.min.mjs?worker')).default
+  const worker = new PdfWorker()
+  pdfjs.GlobalWorkerOptions.workerPort = worker
+  return { pdfjs, worker }
+}
+
+async function extractPdf(file: File): Promise<string> {
+  const { pdfjs, worker } = await pdfjsWithWorker()
 
   const data = new Uint8Array(await file.arrayBuffer())
   const loadingTask = pdfjs.getDocument({ data })
@@ -53,8 +67,9 @@ async function extractPdf(file: File): Promise<string> {
     }
     return out
   } finally {
-    // Release the pdf.js worker-thread allocation across repeated uploads.
+    // Release the pdf.js document and its worker across repeated uploads.
     await loadingTask.destroy()
+    worker.terminate()
   }
 }
 
@@ -68,15 +83,13 @@ export async function ocrPdf(
   onProgress?: (message: string) => void,
   maxPages = 10,
 ): Promise<string> {
-  const pdfjs = await import('pdfjs-dist')
-  const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
-  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+  const { pdfjs, worker } = await pdfjsWithWorker()
   const Tesseract = (await import('tesseract.js')).default
 
   const data = new Uint8Array(await file.arrayBuffer())
   // One OCR worker for the whole document — Tesseract.recognize() would otherwise
   // spin up and tear down the WASM engine (and reload the language data) per page.
-  const worker = await Tesseract.createWorker('eng')
+  const ocrWorker = await Tesseract.createWorker('eng')
   const loadingTask = pdfjs.getDocument({ data })
   try {
     const pdf = await loadingTask.promise
@@ -92,7 +105,7 @@ export async function ocrPdf(
       const ctx = canvas.getContext('2d')
       if (!ctx) continue
       await page.render({ canvas, canvasContext: ctx, viewport }).promise
-      const result = await worker.recognize(canvas)
+      const result = await ocrWorker.recognize(canvas)
       parts.push(result.data.text)
       canvas.width = 0
       canvas.height = 0
@@ -103,8 +116,9 @@ export async function ocrPdf(
     }
     return out
   } finally {
-    await worker.terminate()
+    await ocrWorker.terminate()
     await loadingTask.destroy()
+    worker.terminate()
   }
 }
 
