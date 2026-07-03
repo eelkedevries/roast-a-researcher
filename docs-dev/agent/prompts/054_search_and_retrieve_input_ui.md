@@ -63,8 +63,9 @@ From review of the first cut:
   options + Retrieve), **02 Confirm your data** (the overview), and **03 Roast your
   data** (settings). Steps 02 and 03 are revealed only after a retrieval.
 - **URL "Add" button.** Option 5 gets an **Add** button beside the field that
-  retrieves the URL immediately and shows ✓ Added / ✗ Failed (with the reason)
-  inline, so a website can be confirmed before roasting.
+  retrieves the URL immediately, so a website can be confirmed before roasting. The
+  button itself is the status — a spinner while working, then a green **Added** or a
+  red **Failed** (the failure reason is its tooltip). No source tag, no inline reason.
 - **PDF upload fix.** The pdf.js worker is bundled through Vite (`?worker`,
   `worker: { format: 'es' }`) so it ships as a hashed `.js` chunk. The previous raw
   `pdf.worker.min.mjs` was served with a non-JS MIME type by the static host, which

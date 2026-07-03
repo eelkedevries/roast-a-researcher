@@ -26,8 +26,6 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
 // Name-searchable sources, in the order shown. Only these three offer a by-name
 // search; the numbered fields 1–3 correspond to them.
 const SEARCH_SOURCES: readonly SourceKind[] = ['orcid', 'openalex', 'github']
-const UNSUPPORTED_LINK =
-  'That does not look like a web address. Enter a full link (https://…).'
 
 // The three numbered fields that take a single structured identifier each. The
 // source is fixed by the field, so a bare id or a profile URL both work.
@@ -578,9 +576,7 @@ function addUrlRow(container: HTMLElement, onChange: () => void, value = ''): HT
     '<div class="url-row__top">' +
     '<input class="input url-row__input" type="url" placeholder="https://your-site.com, or any profile URL" aria-label="URL link" />' +
     '<button class="url-row__add" type="button" disabled>Add</button>' +
-    '<button class="url-row__remove" type="button" aria-label="Remove link">×</button></div>' +
-    '<div class="url-row__meta" hidden><span class="url-row__tag"></span><span class="url-row__status"></span></div>' +
-    '<small class="url-row__reason"></small>'
+    '<button class="url-row__remove" type="button" aria-label="Remove link">×</button></div>'
   const input = row.querySelector<HTMLInputElement>('.url-row__input') as HTMLInputElement
   const addBtn = row.querySelector<HTMLButtonElement>('.url-row__add') as HTMLButtonElement
   if (value) input.value = value
@@ -589,13 +585,9 @@ function addUrlRow(container: HTMLElement, onChange: () => void, value = ''): HT
     onChange()
   })
   input.addEventListener('input', () => {
-    // Editing the URL invalidates any earlier "Added" result.
+    // Editing the URL invalidates any earlier "Added"/"Failed" result.
     row.dataset.added = ''
-    const status = row.querySelector<HTMLElement>('.url-row__status')
-    if (status) {
-      status.className = 'url-row__status'
-      status.textContent = ''
-    }
+    resetAddButton(addBtn)
     updateUrlRow(row)
     onChange()
   })
@@ -606,66 +598,60 @@ function addUrlRow(container: HTMLElement, onChange: () => void, value = ''): HT
   return row
 }
 
-// Live feedback for a URL row: show the detected source tag, or flag an unusable
-// value, and enable the "Add" button only for a valid link.
+function resetAddButton(addBtn: HTMLButtonElement): void {
+  addBtn.className = 'url-row__add'
+  addBtn.textContent = 'Add'
+  addBtn.title = ''
+  addBtn.removeAttribute('aria-busy')
+}
+
+// Enable the "Add" button only for a valid link; an unusable value flags the input
+// (red border) with no extra message.
 function updateUrlRow(row: HTMLElement): void {
   const input = row.querySelector<HTMLInputElement>('.url-row__input') as HTMLInputElement
-  const meta = row.querySelector<HTMLElement>('.url-row__meta') as HTMLElement
-  const tag = row.querySelector<HTMLElement>('.url-row__tag') as HTMLElement
-  const reason = row.querySelector<HTMLElement>('.url-row__reason') as HTMLElement
   const addBtn = row.querySelector<HTMLButtonElement>('.url-row__add')
   const v = input.value.trim()
   row.classList.remove('ok', 'bad')
-  reason.textContent = ''
   if (!v) {
-    meta.hidden = true
     if (addBtn) addBtn.disabled = true
     return
   }
-  const det = detectSource(v)
-  if (!det) {
-    meta.hidden = true
+  if (!detectSource(v)) {
     row.classList.add('bad')
-    reason.textContent = UNSUPPORTED_LINK
     if (addBtn) addBtn.disabled = true
     return
   }
   row.classList.add('ok')
-  tag.textContent = SOURCE_LABELS[det.source]
-  meta.hidden = false
   if (addBtn) addBtn.disabled = false
 }
 
-// "Add" a URL: retrieve it now and show success/failure inline, so the user can
-// confirm a website actually yields data before roasting. (The Retrieve-data step
-// re-fetches; the Worker caches retrievals, so this is not a wasted round-trip.)
+// "Add" a URL: retrieve it now so the user can confirm a website yields data before
+// roasting. The button itself is the status — a spinner while working, then a green
+// "Added" or a red "Failed" (the reason is kept as its tooltip). The Retrieve-data
+// step re-fetches; the Worker caches retrievals, so this is not a wasted round-trip.
 async function addUrl(row: HTMLElement, onChange: () => void): Promise<void> {
   const input = row.querySelector<HTMLInputElement>('.url-row__input')
-  const status = row.querySelector<HTMLElement>('.url-row__status')
-  const reason = row.querySelector<HTMLElement>('.url-row__reason')
   const addBtn = row.querySelector<HTMLButtonElement>('.url-row__add')
-  const meta = row.querySelector<HTMLElement>('.url-row__meta')
-  if (!input || !status || !reason || !addBtn || !meta) return
+  if (!input || !addBtn) return
   const det = detectSource(input.value.trim())
   if (!det) {
     updateUrlRow(row)
     return
   }
-  meta.hidden = false
-  addBtn.disabled = true
-  reason.textContent = ''
-  status.className = 'url-row__status is-loading'
-  status.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
+  addBtn.className = 'url-row__add is-loading'
+  addBtn.setAttribute('aria-busy', 'true')
+  addBtn.innerHTML = '<span class="spinner" aria-hidden="true"></span>'
   const res = await retrieveSource(config.workerUrl, det.source, det.id)
-  addBtn.disabled = false
+  addBtn.removeAttribute('aria-busy')
   if (res.ok && res.text) {
-    status.className = 'url-row__status is-ok'
-    status.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Added'
+    addBtn.className = 'url-row__add is-ok'
+    addBtn.textContent = 'Added'
+    addBtn.title = ''
     row.dataset.added = '1'
   } else {
-    status.className = 'url-row__status is-bad'
-    status.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
-    reason.textContent = res.reason ?? 'Could not retrieve this link.'
+    addBtn.className = 'url-row__add is-bad'
+    addBtn.textContent = 'Failed'
+    addBtn.title = res.reason ?? 'Could not retrieve this link.'
     row.dataset.added = ''
   }
   onChange()

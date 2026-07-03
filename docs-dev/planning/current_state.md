@@ -172,7 +172,10 @@ This file records what *is* (current reality). The binding design canon is `docs
   (v1.26): from the given page + site root it follows same-host links (CV, media,
   …) and combines their text, bounded by page/char caps and a time deadline. Static
   personal/university pages work well; JS-rendered or login-walled sites (LinkedIn,
-  Scholar) often return little and fail with a "paste instead" reason.
+  Scholar) often return little and fail with a "paste instead" reason. Website
+  fetches use a **browser-like User-Agent** (`BROWSER_FETCH_HEADERS`): a bot UA gets a
+  JS-challenge/interstitial (200 HTML with no readable text) from some hosts/CDNs,
+  which the crawler otherwise reported as "no readable text found".
 - **OpenAlex now needs a free API key** (usage-based pricing, re-verified
   2026-06-07: anonymous = $0 budget → HTTP 429; free key = $1/day, single-ID
   lookups $0). Set `OPENALEX_API_KEY` (Cloudflare secret) for all OpenAlex
