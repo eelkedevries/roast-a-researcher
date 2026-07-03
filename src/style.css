@@ -343,7 +343,19 @@ textarea.input { min-height: 168px; }
 .overview__chip-n { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.1; }
 .overview__chip-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--iris); }
 .overview__chip-sub { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
-.overview__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+/* Papers / projects fold-out checklists. */
+.overview__group { border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 255, 255, 0.02); margin-bottom: 12px; }
+.overview__foldsummary { display: flex; align-items: center; gap: 14px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.overview__foldsummary::-webkit-details-marker { display: none; }
+.overview__foldsummary:hover { background: rgba(255, 255, 255, 0.02); }
+.overview__foldtext { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.overview__caret { margin-left: auto; color: var(--accent); font-size: 16px; line-height: 1; transition: transform 0.2s; }
+.overview__group[open] .overview__caret { transform: rotate(90deg); }
+.overview__entries { list-style: none; margin: 0; padding: 4px 14px 12px; display: grid; gap: 8px; border-top: 1px solid var(--line); }
+.overview__entry-label { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; font-size: 12.5px; line-height: 1.5; color: var(--text); }
+.overview__entry-check { margin: 2px 0 0; width: 15px; height: 15px; flex: 0 0 auto; accent-color: #3fb950; cursor: pointer; }
+.overview__entry.is-off .overview__entry-text { opacity: 0.5; text-decoration: line-through; }
+.overview__list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
 .overview__row { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; }
 .overview__mark { flex: 0 0 auto; font-weight: 700; }
 .overview__row.is-ok .overview__mark { color: var(--ok); }

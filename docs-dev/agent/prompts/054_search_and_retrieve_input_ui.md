@@ -46,6 +46,13 @@ From review of the first cut:
   check when selected. A match or a manually-typed value ticks it automatically; only
   ticked options are retrieved, so a mis-matched source can be excluded.
 - **Option 4 is upload-only** — an upload button (and drop target), no paste-text box.
+- **Deselectable papers and projects.** In the overview, the "papers" and "projects"
+  counts are fold-out checklists: each paper (from the merged list) and each GitHub
+  repository is one entry with a checkbox, ticked by default. Deselecting an entry
+  drops it from the roast — papers via the de-duplicated publications block **and** the
+  trusted `exclude` list; repositories by removing their line from the GitHub block.
+  Exclusions are applied when the profile is assembled at roast time, so toggling a
+  box needs no re-fetch, and they persist across re-roasts (cleared on a new search).
 
 ## Acceptance criteria
 

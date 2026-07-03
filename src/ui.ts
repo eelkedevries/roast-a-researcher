@@ -868,12 +868,17 @@ interface RetrievedItem {
 interface Retrieved {
   items: RetrievedItem[]
   docTexts: string[]
-  texts: string[]
+  blocks: Array<{ source: SourceKind; text: string }>
   stats: SourceStats[]
   charts: ChartData[]
   mergedPapers: Paper[]
-  profile: string
 }
+
+// Individual papers / GitHub projects the user has de-selected in the overview, so
+// they are dropped from the roast input. Papers reuse `excludedPaperKeys` (shared
+// with the post-roast Papers list); projects are keyed by repository name. Applied
+// when the profile is assembled at roast time, so toggling needs no re-fetch.
+const excludedRepos = new Set<string>()
 
 // The last successful retrieval, reused by Roast me and the export. `dirty` is set
 // whenever an input changes, so the next roast re-retrieves instead of using stale
@@ -895,7 +900,7 @@ function clearRetrieved(root: HTMLElement): void {
   root.querySelector('#stats-card')?.setAttribute('hidden', '')
   root.querySelector('#charts-card')?.setAttribute('hidden', '')
   excludedPaperKeys.clear()
-  lastRenderedPapers = []
+  excludedRepos.clear()
 }
 
 // The OpenAlex author id a retrieved block reports (ORCID auto-embeds an OpenAlex
@@ -1024,7 +1029,7 @@ async function retrieveInputs(root: HTMLElement, sources: Set<string>): Promise<
       .map((s) => s.item)
       .filter((it): it is RetrievedItem & { text: string } => !!it.text),
   )
-  const texts = kept.map((k) => k.text)
+  const blocks = kept.map((k) => ({ source: (k.source ?? 'website') as SourceKind, text: k.text }))
   const statsSeen = new Set<string>()
   const stats: SourceStats[] = []
   for (const k of kept) {
@@ -1037,12 +1042,65 @@ async function retrieveInputs(root: HTMLElement, sources: Set<string>): Promise<
   const allPapers = kept.flatMap((k) => k.papers ?? [])
   const mergedPapers = mergePapers(allPapers)
 
-  const profile = [...docTexts, ...texts, publicationsBlock(mergedPapers)]
+  return { items, docTexts, blocks, stats, charts, mergedPapers }
+}
+
+// The papers still selected in the overview (all, minus any the user unticked).
+function activePapers(data: Retrieved): Paper[] {
+  return data.mergedPapers.filter((p) => p.title && !excludedPaperKeys.has(paperKey(p.title)))
+}
+
+// Parse the repository entries from a GitHub retrieval block ("Notable
+// repositories:" list). Each `- <name>[, lang][, ★n][: description]` line is one.
+function parseRepos(text: string): Array<{ name: string; display: string }> {
+  const out: Array<{ name: string; display: string }> = []
+  let inList = false
+  for (const line of text.split('\n')) {
+    if (/^Notable repositories:/i.test(line)) {
+      inList = true
+      continue
+    }
+    if (!inList) continue
+    const m = line.match(/^-\s+(.*)$/)
+    if (!m) continue
+    const display = m[1].trim()
+    const name = display.split(/[,:]/)[0].trim()
+    if (name) out.push({ name, display })
+  }
+  return out
+}
+
+// Drop de-selected repository lines from a GitHub block.
+function filterExcludedRepos(text: string): string {
+  if (!excludedRepos.size) return text
+  let inList = false
+  return text
+    .split('\n')
+    .filter((line) => {
+      if (/^Notable repositories:/i.test(line)) {
+        inList = true
+        return true
+      }
+      if (inList) {
+        const m = line.match(/^-\s+(.*)$/)
+        if (m) return !excludedRepos.has(m[1].split(/[,:]/)[0].trim())
+      }
+      return true
+    })
+    .join('\n')
+}
+
+// Assemble the roast profile from the retrieved bundle, honouring the overview's
+// paper/project de-selections (applied here, not at fetch time, so toggling a
+// checkbox needs no re-fetch).
+function assembleProfile(data: Retrieved): string {
+  const blocks = data.blocks.map((b) =>
+    b.source === 'github' ? filterExcludedRepos(b.text) : b.text,
+  )
+  return [...data.docTexts, ...blocks, publicationsBlock(activePapers(data))]
     .filter(Boolean)
     .join('\n\n')
     .trim()
-
-  return { items, docTexts, texts, stats, charts, mergedPapers, profile }
 }
 
 // The Retrieve-data step: fetch, store, and render the compact overview.
@@ -1099,8 +1157,80 @@ function githubRepoCount(text: string): number | null {
   return m ? Number(m[1].replace(/,/g, '')) : null
 }
 
-// Render the compact overview: headline counts (papers, projects, documents,
-// links) plus a per-source ✓/✗ status list.
+// A compact line describing a paper, for the papers foldout.
+function paperEntryText(p: Paper): string {
+  const bits = [p.venue, p.year != null ? String(p.year) : null].filter(Boolean).join(', ')
+  const cites = p.citations != null ? `${p.citations} citation${p.citations === 1 ? '' : 's'}` : ''
+  const meta = [bits, cites].filter(Boolean).join(' · ')
+  return meta ? `${p.title} — ${meta}` : (p.title ?? '')
+}
+
+// A fold-out headline count whose entries each carry a checkbox (ticked = kept in
+// the roast). Deselecting an entry calls its onToggle and updates the live count.
+function selectionFoldout(
+  label: string,
+  sub: string,
+  entries: Array<{ text: string; initial: boolean; onToggle: (on: boolean) => void }>,
+): HTMLElement {
+  const details = document.createElement('details')
+  details.className = 'overview__group'
+  const summary = document.createElement('summary')
+  summary.className = 'overview__foldsummary'
+  const num = document.createElement('span')
+  num.className = 'overview__chip-n'
+  const text = document.createElement('span')
+  text.className = 'overview__foldtext'
+  const lab = document.createElement('span')
+  lab.className = 'overview__chip-label'
+  lab.textContent = label
+  const sb = document.createElement('span')
+  sb.className = 'overview__chip-sub'
+  sb.textContent = `${sub} · tap to select`
+  text.append(lab, sb)
+  const caret = document.createElement('span')
+  caret.className = 'overview__caret'
+  caret.setAttribute('aria-hidden', 'true')
+  caret.textContent = '›'
+  summary.append(num, text, caret)
+  details.appendChild(summary)
+
+  const ul = document.createElement('ul')
+  ul.className = 'overview__entries'
+  const boxes: HTMLInputElement[] = []
+  const updateNum = (): void => {
+    num.textContent = String(boxes.filter((c) => c.checked).length)
+  }
+  for (const e of entries) {
+    const li = document.createElement('li')
+    li.className = 'overview__entry'
+    if (!e.initial) li.classList.add('is-off')
+    const l = document.createElement('label')
+    l.className = 'overview__entry-label'
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    cb.className = 'overview__entry-check'
+    cb.checked = e.initial
+    const span = document.createElement('span')
+    span.className = 'overview__entry-text'
+    span.textContent = e.text
+    cb.addEventListener('change', () => {
+      e.onToggle(cb.checked)
+      li.classList.toggle('is-off', !cb.checked)
+      updateNum()
+    })
+    l.append(cb, span)
+    li.appendChild(l)
+    ul.appendChild(li)
+    boxes.push(cb)
+  }
+  updateNum()
+  details.appendChild(ul)
+  return details
+}
+
+// Render the compact overview: papers and projects as fold-out checklists (deselect
+// an entry to drop it from the roast), documents/links as counts, plus a per-source
+// ✓/✗ status list.
 function renderOverview(root: HTMLElement, data: Retrieved): void {
   const overview = root.querySelector<HTMLElement>('#overview')
   if (!overview) return
@@ -1110,27 +1240,59 @@ function renderOverview(root: HTMLElement, data: Retrieved): void {
   const sourceItems = data.items.filter((it) => it.kind === 'source')
   const okSources = sourceItems.filter((it) => it.ok)
   const documents = data.items.filter((it) => it.kind === 'document')
-
-  const projects = okSources
+  const repos = okSources
     .filter((it) => it.source === 'github' && it.text)
-    .reduce((n, it) => n + (githubRepoCount(it.text as string) ?? 0), 0)
+    .flatMap((it) => parseRepos(it.text as string))
   const links = okSources.filter((it) => it.source === 'website').length
-
-  const chips: Array<{ n: string; label: string; sub: string }> = []
-  if (data.mergedPapers.length)
-    chips.push({ n: data.mergedPapers.length.toLocaleString('en-GB'), label: 'papers', sub: 'via ORCID · OpenAlex' })
-  if (projects)
-    chips.push({ n: projects.toLocaleString('en-GB'), label: `project${projects === 1 ? '' : 's'}`, sub: 'via GitHub' })
-  if (documents.length)
-    chips.push({ n: String(documents.length), label: `document${documents.length === 1 ? '' : 's'}`, sub: 'scanned' })
-  if (links)
-    chips.push({ n: String(links), label: `link${links === 1 ? '' : 's'}`, sub: 'scanned' })
 
   const title = document.createElement('h3')
   title.className = 'overview__title'
   title.textContent = okSources.length || documents.length ? 'Retrieved data' : 'Nothing retrieved yet'
   overview.appendChild(title)
 
+  // Papers foldout — deselect to drop a paper from the roast.
+  if (data.mergedPapers.length) {
+    overview.appendChild(
+      selectionFoldout(
+        'papers',
+        'via ORCID · OpenAlex',
+        data.mergedPapers.map((p) => ({
+          text: paperEntryText(p),
+          initial: !!p.title && !excludedPaperKeys.has(paperKey(p.title)),
+          onToggle: (on) => {
+            const k = paperKey(p.title ?? '')
+            if (on) excludedPaperKeys.delete(k)
+            else excludedPaperKeys.add(k)
+          },
+        })),
+      ),
+    )
+  }
+
+  // Projects foldout — deselect to drop a repository from the roast.
+  if (repos.length) {
+    overview.appendChild(
+      selectionFoldout(
+        'projects',
+        'via GitHub',
+        repos.map((r) => ({
+          text: r.display,
+          initial: !excludedRepos.has(r.name),
+          onToggle: (on) => {
+            if (on) excludedRepos.delete(r.name)
+            else excludedRepos.add(r.name)
+          },
+        })),
+      ),
+    )
+  }
+
+  // Documents / links — simple counts (no per-entry selection).
+  const chips: Array<{ n: string; label: string; sub: string }> = []
+  if (documents.length)
+    chips.push({ n: String(documents.length), label: documents.length === 1 ? 'document' : 'documents', sub: 'scanned' })
+  if (links)
+    chips.push({ n: String(links), label: links === 1 ? 'link' : 'links', sub: 'scanned' })
   if (chips.length) {
     const grid = document.createElement('div')
     grid.className = 'overview__chips'
@@ -1430,7 +1592,6 @@ function renderSubList(root: HTMLElement, secSel: string, listSel: string, items
 // Papers the user has marked as "not theirs" (by normalised title); excluded from
 // the roast on re-roast. Persists across re-roasts, cleared on a new search.
 const excludedPaperKeys = new Set<string>()
-let lastRenderedPapers: Paper[] = []
 // The in-flight roast fetch, so a new Search/Sample can cancel a stale stream
 // before it overwrites the freshly-reset UI.
 let roastAbort: AbortController | null = null
@@ -1450,7 +1611,6 @@ function renderPapers(root: HTMLElement, papers: Paper[]): void {
   const sec = root.querySelector<HTMLElement>('#sec-papers')
   const ol = root.querySelector<HTMLElement>('#papers')
   if (!sec || !ol) return
-  lastRenderedPapers = papers
   ol.textContent = ''
   for (const p of papers) {
     const title = asStr(p?.title)
@@ -1644,11 +1804,10 @@ function showDemo(root: HTMLElement, output: HTMLElement): void {
   retrieved = {
     items: [{ kind: 'document', label: `${demoResearcher.name} — simulated demo`, ok: true }],
     docTexts: [demoResearcher.profile],
-    texts: [],
+    blocks: [],
     stats: [demoResearcher.stats],
     charts: [demoResearcher.charts],
     mergedPapers: [],
-    profile: demoResearcher.profile,
   }
   dirty = false
   root.querySelector('#step-roast')?.classList.remove('hidden')
@@ -1716,7 +1875,7 @@ async function runRoast(
     statusOut(output, 'Retrieving sources…')
     data = await ensureRetrieved(root, sourcesRef)
   }
-  const profile = data?.profile ?? ''
+  const profile = data ? assembleProfile(data) : ''
   if (!profile) {
     placeholderOut(output, 'Search for a name above, or add a source, then Retrieve data.')
     button.disabled = false
@@ -1733,9 +1892,9 @@ async function runRoast(
   const linkStats = data?.stats ?? []
   const linkCharts = data?.charts ?? []
 
-  // Papers the user has marked as not theirs (from a previous render): sent as a
-  // trusted exclusion list so the model ignores mis-attributed works.
-  const exclude = lastRenderedPapers
+  // Papers the user has de-selected (in the overview foldout or the post-roast
+  // Papers list): sent as a trusted exclusion list so the model ignores them too.
+  const exclude = mergedPapers
     .filter((p) => p.title && excludedPaperKeys.has(paperKey(p.title)))
     .map((p) => p.title as string)
 
