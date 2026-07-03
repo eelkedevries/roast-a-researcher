@@ -284,6 +284,20 @@ textarea.input { min-height: 168px; }
 .inopt__add.is-bad { background: var(--error); color: #2a0b0b; border-color: var(--error); cursor: help; }
 /* The file list sits below the Documents row, spanning the full width. */
 .inopt .file-list { grid-column: 1 / -1; }
+/* A per-row "see more matches" foldout, shown when a name search returns several
+   candidates for that source; spans the row's full width beneath it. */
+.inopt__more { grid-column: 1 / -1; margin-top: 2px; }
+.inopt__more-summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.02em; color: var(--text); padding: 2px 0; }
+.inopt__more-summary::-webkit-details-marker { display: none; }
+.inopt__more-summary::before { content: '›'; color: var(--accent); transition: transform 0.2s; display: inline-block; }
+.inopt__more[open] .inopt__more-summary::before { transform: rotate(90deg); }
+.inopt__more-summary:hover { color: var(--text-bright); }
+.inopt__cands { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.inopt__cand { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 1px; background: #16161f; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.inopt__cand:hover { border-color: var(--line-2); background: rgba(255, 255, 255, 0.02); }
+.inopt__cand.is-selected { border-color: rgba(107, 166, 228, 0.5); background: rgba(107, 166, 228, 0.08); }
+.inopt__cand-name { font-family: var(--sans); font-size: 13px; color: var(--text); }
+.inopt__cand-affil { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
 
 /* Chip buttons (upload, sample, add link) */
 .chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.03em; color: var(--muted); background: transparent; border: 1px solid var(--line-2); border-radius: 999px; padding: 5px 12px; cursor: pointer; transition: border-color 0.15s, color 0.15s, background 0.15s; }

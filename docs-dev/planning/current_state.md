@@ -17,16 +17,18 @@ This file records what *is* (current reality). The binding design canon is `docs
   native page of the site (`055`). Step 01 has a **search-by-name hero** (ORCID/
   OpenAlex/GitHub) above **five uniform single-line input rows** — 1 ORCID,
   2 OpenAlex, 3 GitHub, 4 Documents, 5 Website. A search **auto-fills** each source's
-  closest match straight into its field (best match only; no picker or separate
-  results block). Rows 1–3 and 5 each have an **Add** button (green "Added" / red
+  closest match straight into its field; when a source returns several candidates
+  the rest sit under a per-row **"see more matches" foldout** (`056`) whose summary
+  names the chosen match and whose entries pick an alternative into the field — no
+  separate results block. Rows 1–3 and 5 each have an **Add** button (green "Added" / red
   "Failed") that retrieves the entered id/URL to confirm it. Each row's **number
   badge is its include indicator** (a hidden checkbox behind the badge): a search
   match or a successful Add fills it gold; toggling it excludes that source from
   retrieval — so a mis-match can be dropped. Row 4 (Documents) is **upload-only** (a
   dashed drop box + Browse, no paste); row 5 (Website) is a single URL field that
-  auto-detects its source. In the overview, papers and Personalia "Education" are
-  ordered chronologically by year; the GitHub foldout is titled "repositories" and
-  lists names only. A discrete **Retrieve data** button then
+  auto-detects its source. In the overview, papers are listed **reverse-
+  chronologically** (newest first; `056`) and Personalia "Education" chronologically
+  (oldest first); the GitHub foldout is titled "repositories" and lists names only. A discrete **Retrieve data** button then
   fetches everything (de-duplicating an OpenAlex record already covered by ORCID) and
   shows a **compact overview** — documents + links as counts, and **papers and projects
   as fold-out checklists** where each paper/GitHub repo is a ticked entry the user can

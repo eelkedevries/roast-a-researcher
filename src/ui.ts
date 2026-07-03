@@ -7,6 +7,7 @@ import {
   retrieveSource,
   searchSource,
   type SourceKind,
+  type Candidate,
   type SourceStats,
   type ChartData,
   type ApiPaper,
@@ -320,6 +321,8 @@ export function mountApp(root: HTMLElement): void {
     field.addEventListener('input', () => {
       setChecked(root, r.key, false)
       resetInoptAdd(root, r.key)
+      // Typing overrides any search match, so drop that row's alternatives foldout.
+      root.querySelector(`.inopt[data-row="${r.key}"] .inopt__more`)?.remove()
       markDirty()
     })
     addBtn.addEventListener('click', () => {
@@ -415,6 +418,7 @@ export function mountApp(root: HTMLElement): void {
     for (const r of SOURCE_ROWS) {
       $<HTMLInputElement>(`#in-${r.key}`).value = ''
       resetInoptAdd(root, r.key)
+      root.querySelector(`.inopt[data-row="${r.key}"] .inopt__more`)?.remove()
     }
     for (const key of ROW_KEYS) setChecked(root, key, false)
     fileList.textContent = ''
@@ -668,13 +672,17 @@ async function doSearch(
     }
     const cands = result.candidates ?? []
     if (!cands.length) continue
-    const best = cands
+    const ranked = cands
       .map((candidate) => ({ candidate, score: rankName(candidate.name, nq, qTokens) }))
-      .sort((a, b) => a.score - b.score)[0].candidate
+      .sort((a, b) => a.score - b.score)
+      .map((r) => r.candidate)
     const field = root.querySelector<HTMLInputElement>(`#in-${source}`)
-    if (field) field.value = best.id
+    if (field) field.value = ranked[0].id
     resetInoptAdd(root, source)
     setChecked(root, source, true)
+    // When a source returns several candidates, offer the rest under a per-row
+    // "see more matches" foldout so a mis-ranked name can be corrected.
+    renderMatchFoldout(root, source, ranked, onChange)
     anyMatch = true
   }
   onChange()
@@ -684,6 +692,71 @@ async function doSearch(
     : anyFailure
       ? 'Search sources are unavailable right now — enter IDs or a URL manually below.'
       : 'No matches found — enter IDs or a URL manually below.'
+}
+
+// When a name search returns more than one candidate for a source, show the
+// alternatives under a foldout beneath that row (spanning its full width). The
+// collapsed summary names the chosen match; picking another fills the field with
+// its id and re-ticks the row. A single candidate needs no foldout.
+function renderMatchFoldout(
+  root: HTMLElement,
+  source: SourceKind,
+  candidates: Candidate[],
+  onChange: () => void,
+): void {
+  const li = root.querySelector<HTMLElement>(`.inopt[data-row="${source}"]`)
+  if (!li) return
+  li.querySelector('.inopt__more')?.remove()
+  const field = li.querySelector<HTMLInputElement>(`#in-${source}`)
+  if (!field || candidates.length < 2) return
+
+  let chosenId = candidates[0].id
+  const details = document.createElement('details')
+  details.className = 'inopt__more'
+  const summary = document.createElement('summary')
+  summary.className = 'inopt__more-summary'
+  const ul = document.createElement('ul')
+  ul.className = 'inopt__cands'
+
+  const nameOf = (id: string): string => candidates.find((c) => c.id === id)?.name ?? id
+  const updateSummary = (): void => {
+    summary.textContent = `${nameOf(chosenId)} — see ${candidates.length} matches`
+  }
+
+  const buttons: Array<{ id: string; btn: HTMLButtonElement }> = []
+  for (const c of candidates) {
+    const item = document.createElement('li')
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'inopt__cand'
+    if (c.id === chosenId) btn.classList.add('is-selected')
+    const name = document.createElement('span')
+    name.className = 'inopt__cand-name'
+    name.textContent = c.name
+    btn.appendChild(name)
+    if (c.affiliation) {
+      const affil = document.createElement('span')
+      affil.className = 'inopt__cand-affil'
+      affil.textContent = c.affiliation
+      btn.appendChild(affil)
+    }
+    btn.addEventListener('click', () => {
+      chosenId = c.id
+      field.value = c.id
+      setChecked(root, source, true)
+      resetInoptAdd(root, source)
+      for (const b of buttons) b.btn.classList.toggle('is-selected', b.id === chosenId)
+      updateSummary()
+      onChange()
+      details.open = false
+    })
+    buttons.push({ id: c.id, btn })
+    item.appendChild(btn)
+    ul.appendChild(item)
+  }
+  updateSummary()
+  details.append(summary, ul)
+  li.appendChild(details)
 }
 
 // --- retrieval ---
@@ -1124,11 +1197,11 @@ function renderOverview(root: HTMLElement, data: Retrieved): void {
     .flatMap((it) => parseRepos(it.text as string))
   const links = okSources.filter((it) => it.source === 'website').length
 
-  // Papers foldout — listed chronologically by year (oldest first); deselect to drop
-  // a paper from the roast.
+  // Papers foldout — listed reverse-chronologically (newest first); undated papers
+  // sink to the end. Deselect to drop a paper from the roast.
   if (data.mergedPapers.length) {
     const papersByYear = [...data.mergedPapers].sort(
-      (a, b) => (a.year ?? Infinity) - (b.year ?? Infinity),
+      (a, b) => (b.year ?? -Infinity) - (a.year ?? -Infinity),
     )
     overview.appendChild(
       selectionFoldout(
