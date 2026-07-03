@@ -189,11 +189,10 @@ textarea.input { min-height: 168px; }
 /* Form card + numbered steps */
 .form { margin-top: 32px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
 .step { padding: 24px; }
-.step:not(:last-child) { border-bottom: 1px solid var(--line); }
-/* The roast settings step is revealed only after a retrieval; drop the divider
-   under step 01 while it is hidden so the card does not end on a stray line. */
-#step-roast.hidden { display: none; }
-.form:has(#step-roast.hidden) .step:first-child { border-bottom: 0; }
+/* Steps 02 (Confirm) and 03 (Roast) are revealed only after a retrieval; a
+   top-border divider is drawn per step so hidden steps never leave a stray line. */
+.step + .step { border-top: 1px solid var(--line); }
+.step.hidden { display: none; }
 .step__head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .step__sample { margin-left: auto; background: none; border: 0; padding: 0; color: var(--accent); font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em; cursor: pointer; border-bottom: 1px dashed rgba(232, 180, 58, 0.45); }
 .step__sample:hover { border-bottom-color: var(--accent); }
@@ -323,21 +322,27 @@ textarea.input { min-height: 168px; }
 .url-row__input { flex: 1; }
 .url-row.ok .url-row__input { border-color: var(--line-2); }
 .url-row.bad .url-row__input { border-color: var(--bad); }
+.url-row__add { flex: 0 0 auto; font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #0a0a0a; background: var(--accent); border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer; transition: transform 0.12s, box-shadow 0.15s, opacity 0.15s; }
+.url-row__add:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 22px -14px rgba(232, 180, 58, 0.6); }
+.url-row__add:disabled { opacity: 0.4; cursor: default; }
 .url-row__remove { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px; min-width: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center; }
 .url-row__remove:hover { color: var(--accent); }
 .url-row__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 7px 0 0 2px; }
 .url-row__meta[hidden] { display: none; }
 .url-row__tag { font-family: var(--mono); font-weight: 500; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--iris); border: 1px solid rgba(107, 166, 228, 0.34); background: rgba(107, 166, 228, 0.08); border-radius: 100px; padding: 3px 9px; }
+.url-row__status { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; }
+.url-row__status.is-loading { color: var(--muted); }
+.url-row__status.is-ok { color: var(--ok); }
+.url-row__status.is-bad { color: var(--error); font-weight: 700; }
 .url-row__reason { display: block; font-family: var(--mono); font-size: 11px; color: var(--bad); margin: 6px 0 0 2px; }
 #add-url { margin-top: 2px; }
 
 /* Retrieve-data step + compact overview */
 .retrieve { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: 22px; }
 .retrieve .btn--primary { padding: 12px 28px; }
-.overview { margin-top: 18px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 11px; background: var(--inset); }
+.overview { margin: 0; }
 .overview.hidden { display: none; }
-.overview__status { font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin: 0; display: inline-flex; align-items: center; gap: 8px; }
-.overview__title { font-family: var(--mono); font-weight: 500; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
+.overview__status { font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin: 0; display: inline-flex; align-items: center; gap: 8px; line-height: 1.6; }
 .overview__chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .overview__chip { display: flex; flex-direction: column; gap: 1px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 255, 255, 0.02); }
 .overview__chip-n { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.1; }

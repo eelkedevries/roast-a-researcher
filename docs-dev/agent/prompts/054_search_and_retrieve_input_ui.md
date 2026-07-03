@@ -59,6 +59,16 @@ From review of the first cut:
   per-source ✓ status list and the "Looks right?" hint are dropped (they duplicated
   the counts and showed a raw per-source paper total that disagreed with the
   de-duplicated headline); only retrieval **failures** are surfaced.
+- **Three numbered steps.** The form is split into **01 Add your data** (search +
+  options + Retrieve), **02 Confirm your data** (the overview), and **03 Roast your
+  data** (settings). Steps 02 and 03 are revealed only after a retrieval.
+- **URL "Add" button.** Option 5 gets an **Add** button beside the field that
+  retrieves the URL immediately and shows ✓ Added / ✗ Failed (with the reason)
+  inline, so a website can be confirmed before roasting.
+- **PDF upload fix.** The pdf.js worker is bundled through Vite (`?worker`,
+  `worker: { format: 'es' }`) so it ships as a hashed `.js` chunk. The previous raw
+  `pdf.worker.min.mjs` was served with a non-JS MIME type by the static host, which
+  silently broke the module worker and failed every PDF upload.
 
 ## Acceptance criteria
 

@@ -9,10 +9,13 @@ This file records what *is* (current reality). The binding design canon is `docs
 ## Systems
 
 - **Build/dev scaffold** — Vite + TypeScript static site, building to `dist/`.
-- **Front-end shell** — `src/ui.ts` renders a guided **search → retrieve → roast**
-  input flow (`054`): a **search-by-name hero** (ORCID/OpenAlex/GitHub) whose matches
-  fold **into a single numbered list of five input options** (1 ORCID, 2 OpenAlex,
-  3 GitHub, 4 upload documents, 5 URL link) — there is no separate results block. Each
+- **Front-end shell** — `src/ui.ts` renders a guided flow in **three numbered steps —
+  01 Add your data, 02 Confirm your data, 03 Roast your data** (steps 02/03 revealed
+  after a retrieval) (`054`). Step 01 has a **search-by-name hero** (ORCID/OpenAlex/
+  GitHub) whose matches fold **into a single numbered list of five input options**
+  (1 ORCID, 2 OpenAlex, 3 GitHub, 4 upload documents, 5 URL link) — there is no
+  separate results block. Option 5 has an **Add** button that retrieves the URL
+  immediately and shows ✓/✗ inline. Each
   source option shows its closest match as the researcher's **name** (not the raw ID),
   with a "see more options" foldout and an "enter a different ID manually" toggle
   inline; picking an alternative promotes it and folds the rest back. **Each option has
@@ -97,7 +100,10 @@ This file records what *is* (current reality). The binding design canon is `docs
   `RETRIEVE_CACHE_TTL`). arXiv/PubMed were built then removed (namesake risk).
 - **Front-end extras** — SSE reader with typing effect (`src/ui.ts`); client-side
   file→text extraction (`src/extract.ts`: txt/md/pdf/docx/odt, lazy-loaded) with an
-  **opt-in scanned-PDF OCR fallback** (`ocrPdf`, tesseract.js, lazy); client-side
+  **opt-in scanned-PDF OCR fallback** (`ocrPdf`, tesseract.js, lazy); the pdf.js
+  worker is bundled via Vite `?worker` (`vite.config.ts` `worker.format: 'es'`) so it
+  ships as a `.js` chunk — a raw `.mjs` worker was served with a non-JS MIME type by
+  the static host and broke every PDF upload; client-side
   share/export (`src/share.ts`: copy, .txt, canvas PNG); SVG charts (`src/charts.ts`);
   `noindex` + provider-policy link.
 

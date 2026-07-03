@@ -117,7 +117,7 @@ export function mountApp(root: HTMLElement): void {
         <div class="step">
           <div class="step__head">
             <span class="step__num">01</span>
-            <h2 class="step__title">Add your sources</h2>
+            <h2 class="step__title">Add your data</h2>
             <button class="step__sample" id="sample" type="button">See a sample roast</button>
           </div>
 
@@ -159,13 +159,20 @@ export function mountApp(root: HTMLElement): void {
             <button class="btn btn--primary" id="retrieve-data" type="button">Retrieve data</button>
             <button class="step__utility" id="export-data" type="button" hidden>Download the retrieved data</button>
           </div>
-          <div class="overview hidden" id="overview" aria-live="polite"></div>
+        </div>
+
+        <div class="step step--confirm hidden" id="step-confirm">
+          <div class="step__head">
+            <span class="step__num">02</span>
+            <h2 class="step__title">Confirm your data</h2>
+          </div>
+          <div class="overview" id="overview" aria-live="polite"></div>
         </div>
 
         <div class="step step--roast hidden" id="step-roast">
           <div class="step__head">
-            <span class="step__num">02</span>
-            <h2 class="step__title">Roast settings</h2>
+            <span class="step__num">03</span>
+            <h2 class="step__title">Roast your data</h2>
           </div>
           <div class="action-row">
             <div class="action-row__intensity">
@@ -570,37 +577,49 @@ function addUrlRow(container: HTMLElement, onChange: () => void, value = ''): HT
   row.innerHTML =
     '<div class="url-row__top">' +
     '<input class="input url-row__input" type="url" placeholder="https://your-site.com, or any profile URL" aria-label="URL link" />' +
+    '<button class="url-row__add" type="button" disabled>Add</button>' +
     '<button class="url-row__remove" type="button" aria-label="Remove link">×</button></div>' +
-    '<div class="url-row__meta" hidden><span class="url-row__tag"></span></div>' +
+    '<div class="url-row__meta" hidden><span class="url-row__tag"></span><span class="url-row__status"></span></div>' +
     '<small class="url-row__reason"></small>'
   const input = row.querySelector<HTMLInputElement>('.url-row__input') as HTMLInputElement
+  const addBtn = row.querySelector<HTMLButtonElement>('.url-row__add') as HTMLButtonElement
   if (value) input.value = value
   ;(row.querySelector('.url-row__remove') as HTMLButtonElement).addEventListener('click', () => {
     row.remove()
     onChange()
   })
   input.addEventListener('input', () => {
+    // Editing the URL invalidates any earlier "Added" result.
+    row.dataset.added = ''
+    const status = row.querySelector<HTMLElement>('.url-row__status')
+    if (status) {
+      status.className = 'url-row__status'
+      status.textContent = ''
+    }
     updateUrlRow(row)
     onChange()
   })
   input.addEventListener('blur', () => updateUrlRow(row))
+  addBtn.addEventListener('click', () => void addUrl(row, onChange))
   container.appendChild(row)
   updateUrlRow(row)
   return row
 }
 
 // Live feedback for a URL row: show the detected source tag, or flag an unusable
-// value. Retrieval itself happens at the Retrieve-data step.
+// value, and enable the "Add" button only for a valid link.
 function updateUrlRow(row: HTMLElement): void {
   const input = row.querySelector<HTMLInputElement>('.url-row__input') as HTMLInputElement
   const meta = row.querySelector<HTMLElement>('.url-row__meta') as HTMLElement
   const tag = row.querySelector<HTMLElement>('.url-row__tag') as HTMLElement
   const reason = row.querySelector<HTMLElement>('.url-row__reason') as HTMLElement
+  const addBtn = row.querySelector<HTMLButtonElement>('.url-row__add')
   const v = input.value.trim()
   row.classList.remove('ok', 'bad')
   reason.textContent = ''
   if (!v) {
     meta.hidden = true
+    if (addBtn) addBtn.disabled = true
     return
   }
   const det = detectSource(v)
@@ -608,11 +627,48 @@ function updateUrlRow(row: HTMLElement): void {
     meta.hidden = true
     row.classList.add('bad')
     reason.textContent = UNSUPPORTED_LINK
+    if (addBtn) addBtn.disabled = true
     return
   }
   row.classList.add('ok')
   tag.textContent = SOURCE_LABELS[det.source]
   meta.hidden = false
+  if (addBtn) addBtn.disabled = false
+}
+
+// "Add" a URL: retrieve it now and show success/failure inline, so the user can
+// confirm a website actually yields data before roasting. (The Retrieve-data step
+// re-fetches; the Worker caches retrievals, so this is not a wasted round-trip.)
+async function addUrl(row: HTMLElement, onChange: () => void): Promise<void> {
+  const input = row.querySelector<HTMLInputElement>('.url-row__input')
+  const status = row.querySelector<HTMLElement>('.url-row__status')
+  const reason = row.querySelector<HTMLElement>('.url-row__reason')
+  const addBtn = row.querySelector<HTMLButtonElement>('.url-row__add')
+  const meta = row.querySelector<HTMLElement>('.url-row__meta')
+  if (!input || !status || !reason || !addBtn || !meta) return
+  const det = detectSource(input.value.trim())
+  if (!det) {
+    updateUrlRow(row)
+    return
+  }
+  meta.hidden = false
+  addBtn.disabled = true
+  reason.textContent = ''
+  status.className = 'url-row__status is-loading'
+  status.innerHTML = '<span class="spinner" aria-hidden="true"></span> Retrieving…'
+  const res = await retrieveSource(config.workerUrl, det.source, det.id)
+  addBtn.disabled = false
+  if (res.ok && res.text) {
+    status.className = 'url-row__status is-ok'
+    status.innerHTML = '<span class="search__mark" aria-hidden="true">✓</span> Added'
+    row.dataset.added = '1'
+  } else {
+    status.className = 'url-row__status is-bad'
+    status.innerHTML = '<span class="search__mark" aria-hidden="true">✗</span> Failed'
+    reason.textContent = res.reason ?? 'Could not retrieve this link.'
+    row.dataset.added = ''
+  }
+  onChange()
 }
 
 // --- search by name ---
@@ -890,11 +946,9 @@ function clearRetrieved(root: HTMLElement): void {
   retrieved = null
   dirty = true
   const overview = root.querySelector<HTMLElement>('#overview')
-  if (overview) {
-    overview.textContent = ''
-    overview.classList.add('hidden')
-  }
+  if (overview) overview.textContent = ''
   root.querySelector('#export-data')?.setAttribute('hidden', '')
+  root.querySelector('#step-confirm')?.classList.add('hidden')
   root.querySelector('#step-roast')?.classList.add('hidden')
   root.querySelector('#reroast')?.classList.add('hidden')
   root.querySelector('#stats-card')?.setAttribute('hidden', '')
@@ -1112,8 +1166,8 @@ async function runRetrieve(root: HTMLElement, sources: Set<string>): Promise<Ret
     btn.disabled = true
     btn.textContent = 'Retrieving…'
   }
+  root.querySelector('#step-confirm')?.classList.remove('hidden')
   if (overview) {
-    overview.classList.remove('hidden')
     overview.innerHTML = '<p class="overview__status"><span class="spinner" aria-hidden="true"></span> Retrieving your sources…</p>'
   }
   try {
@@ -1122,7 +1176,6 @@ async function runRetrieve(root: HTMLElement, sources: Set<string>): Promise<Ret
       retrieved = null
       dirty = true
       if (overview) {
-        overview.classList.remove('hidden')
         overview.innerHTML =
           '<p class="overview__status">Nothing to retrieve yet — search for a name, or add a source above.</p>'
       }
@@ -1280,7 +1333,6 @@ function renderOverview(root: HTMLElement, data: Retrieved): void {
   const overview = root.querySelector<HTMLElement>('#overview')
   if (!overview) return
   overview.textContent = ''
-  overview.classList.remove('hidden')
 
   const sourceItems = data.items.filter((it) => it.kind === 'source')
   const okSources = sourceItems.filter((it) => it.ok)
@@ -1289,11 +1341,6 @@ function renderOverview(root: HTMLElement, data: Retrieved): void {
     .filter((it) => it.source === 'github' && it.text)
     .flatMap((it) => parseRepos(it.text as string))
   const links = okSources.filter((it) => it.source === 'website').length
-
-  const title = document.createElement('h3')
-  title.className = 'overview__title'
-  title.textContent = okSources.length || documents.length ? 'Retrieved data' : 'Nothing retrieved yet'
-  overview.appendChild(title)
 
   // Papers foldout — deselect to drop a paper from the roast.
   if (data.mergedPapers.length) {
@@ -1839,12 +1886,12 @@ function showDemo(root: HTMLElement, output: HTMLElement): void {
     mergedPapers: [],
   }
   dirty = false
+  root.querySelector('#step-confirm')?.classList.remove('hidden')
   root.querySelector('#step-roast')?.classList.remove('hidden')
   const overview = root.querySelector<HTMLElement>('#overview')
   if (overview) {
-    overview.classList.remove('hidden')
     overview.innerHTML =
-      '<h3 class="overview__title">Sample data</h3><p class="overview__hint">A fully invented researcher — press Roast me to generate a live roast, or search for a real name above.</p>'
+      '<p class="overview__status">Sample data — a fully invented researcher. Press Roast me for a live roast, or search for a real name above.</p>'
   }
   output.className = 'output'
   output.textContent = demoResearcher.roast
