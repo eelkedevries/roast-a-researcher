@@ -34,6 +34,19 @@ preserved; the change is to the input surface and the order of the funnel.
 `src/style.css`: styles for the numbered option list, per-source search groups,
 the retrieve button row and the compact overview. Cosmic theme, British English.
 
+## Follow-up refinements
+
+From review of the first cut:
+- **One list, not two.** After a name search, do not show a separate results block
+  above the numbered options. The matches fold **into** the five-option list: each
+  source's closest match populates its own numbered option, shown as the researcher's
+  **name** (not the raw ORCID/OpenAlex ID), with the "see more options" foldout and a
+  "enter a different ID manually" toggle inline in that option.
+- **A checkbox before each of the five options**, showing a clearly visible green
+  check when selected. A match or a manually-typed value ticks it automatically; only
+  ticked options are retrieved, so a mis-matched source can be excluded.
+- **Option 4 is upload-only** — an upload button (and drop target), no paste-text box.
+
 ## Acceptance criteria
 
 - `npm run check` passes.

@@ -10,20 +10,23 @@ This file records what *is* (current reality). The binding design canon is `docs
 
 - **Build/dev scaffold** — Vite + TypeScript static site, building to `dist/`.
 - **Front-end shell** — `src/ui.ts` renders a guided **search → retrieve → roast**
-  input flow (`054`): a **search-by-name hero** (ORCID/OpenAlex/GitHub) whose results
-  are grouped **per source** — the closest match on top, the rest behind a per-source
-  "see more options" foldout; picking one fills that source's field, promotes it to
-  the top and folds the alternatives back in. Below is a **numbered list of five input
-  options** (1 ORCID, 2 OpenAlex, 3 GitHub, 4 upload documents/paste, 5 URL link),
-  then a discrete **Retrieve data** button that fetches everything (de-duplicating an
-  OpenAlex record already covered by ORCID) and shows a **compact overview** — papers
-  via ORCID/OpenAlex, projects via GitHub, documents + links scanned, with per-source
-  ✓/✗. The **Roast settings** step (intensity + format) and the **Roast me** button
-  appear only after a retrieval; changing any input marks the retrieval stale so the
-  next roast re-retrieves. Documents are extracted **in memory** (PDF/Word/ODT/txt/md
-  via `src/extract.ts`; `documentTexts` WeakMap / `collectDocumentTexts`) and fed to
-  the roast without filling the paste box. The **Roast output** card's output is
-  **four sections**
+  input flow (`054`): a **search-by-name hero** (ORCID/OpenAlex/GitHub) whose matches
+  fold **into a single numbered list of five input options** (1 ORCID, 2 OpenAlex,
+  3 GitHub, 4 upload documents, 5 URL link) — there is no separate results block. Each
+  source option shows its closest match as the researcher's **name** (not the raw ID),
+  with a "see more options" foldout and an "enter a different ID manually" toggle
+  inline; picking an alternative promotes it and folds the rest back. **Each option has
+  a leading include-checkbox** (green tick) that a match or a typed value ticks
+  automatically; only ticked options are retrieved, so a mis-match can be excluded.
+  Option 4 is **upload-only** (no paste box). A discrete **Retrieve data** button then
+  fetches everything (de-duplicating an OpenAlex record already covered by ORCID) and
+  shows a **compact overview** — papers via ORCID/OpenAlex, projects via GitHub,
+  documents + links scanned, with per-source ✓/✗. The **Roast settings** step
+  (intensity + format) and the **Roast me** button appear only after a retrieval;
+  changing any input marks the retrieval stale so the next roast re-retrieves.
+  Documents are extracted **in memory** (PDF/Word/ODT/txt/md via `src/extract.ts`;
+  `documentTexts` WeakMap / `collectDocumentTexts`). The **Roast output** card's output
+  is **four sections**
   (`036`, spec v1.22): **Personalia** (name, position, current/previous
   affiliations, research domain, focus keywords, education + Profiles/Grants/Awards
   subsections), **Profile** (the streamed roast with a caret), **Papers** (main
@@ -130,11 +133,12 @@ This file records what *is* (current reality). The binding design canon is `docs
   and `ORCID_CLIENT_ID`, then verify the live round-trip against ORCID sandbox
   (the build container cannot reach `orcid.org`).
 - **Front-end input flow reshaped to search → retrieve → roast (`054`)**, superseding
-  the earlier "Focused Console" input surface (search-by-name is still primary, but
-  results are now grouped **per source** with a per-source "see more options" foldout
-  rather than one similarity-ranked list; the manual `<details>` is replaced by a
-  **numbered 1–5 options** list; a discrete **Retrieve data** step shows a **compact
-  overview** and only then reveals **Roast settings + Roast me**). `src/charts.ts`'s
+  the earlier "Focused Console" input surface (search-by-name is still primary, but its
+  matches now fold **into a single numbered 1–5 options list** — each source option
+  shows the matched name with an inline "see more options" foldout, a leading
+  green-tick **include-checkbox**, and option 4 upload-only; the manual `<details>` is
+  gone; a discrete **Retrieve data** step shows a **compact overview** and only then
+  reveals **Roast settings + Roast me**). `src/charts.ts`'s
   5th "Top venues" chart and the `032_pdf_ocr` OCR fallback are unchanged. When both
   an ORCID and the same OpenAlex are provided, the redundant OpenAlex is
   **de-duplicated and not re-fetched** (ORCID auto-embeds it; non-OpenAlex sources

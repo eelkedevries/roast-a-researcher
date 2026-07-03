@@ -77,14 +77,21 @@ export function mountApp(root: HTMLElement): void {
       )
       .join('') +
     `</div>`
+  const optCheck = (key: string, label: string): string =>
+    `<label class="inopt__check"><input type="checkbox" id="check-${key}" class="inopt__checkbox" aria-label="Include ${label}" /><span class="inopt__box" aria-hidden="true"></span></label>`
   const numberedRows = NUMBERED.map(
     (f) => `
       <li class="inopt" data-source="${f.source}">
+        ${optCheck(f.source, f.label)}
         <span class="inopt__num" aria-hidden="true">${f.n}</span>
         <div class="inopt__body">
           <label class="inopt__label" for="in-${f.source}">${f.label}</label>
-          <input id="in-${f.source}" class="input inopt__input" type="text" placeholder="${f.ph}" aria-label="${f.label} — ${f.ph}" />
-          <small class="inopt__hint">${f.hint}</small>
+          <div class="inopt__manual">
+            <input id="in-${f.source}" class="input inopt__input" type="text" placeholder="${f.ph}" aria-label="${f.label} — ${f.ph}" />
+            <small class="inopt__hint">${f.hint}</small>
+          </div>
+          <div class="inopt__match" hidden></div>
+          <p class="inopt__note" hidden></p>
         </div>
       </li>`,
   ).join('')
@@ -119,29 +126,26 @@ export function mountApp(root: HTMLElement): void {
             <input id="search-query" class="search-hero__input" type="text" placeholder="Search for a researcher by name…" aria-label="Search for a researcher by name" />
             <button class="btn btn--primary search-hero__btn" id="search-btn" type="button">Search</button>
           </div>
-          <p class="search-hint">Searches ORCID, OpenAlex and GitHub. Pick the closest match for each source; the rest hide under “see more options”.</p>
-          <div id="search-results" class="search-results" aria-live="polite"></div>
+          <p class="search-hint">Searches ORCID, OpenAlex and GitHub. Matches fill the options below — tick the ones to include, and change a match under “see more options”.</p>
+          <p id="search-status" class="search-status" aria-live="polite"></p>
 
           <ol class="inputs" id="inputs" aria-label="Input options">
             ${numberedRows}
             <li class="inopt" data-kind="docs">
+              ${optCheck('docs', 'uploaded documents')}
               <span class="inopt__num" aria-hidden="true">4</span>
               <div class="inopt__body">
                 <span class="inopt__label">Upload documents <span class="inopt__eg">(e.g., CV)</span></span>
-                <div class="field" id="dropzone">
-                  <textarea id="profile" class="field__text" placeholder="Drop files below, or paste bio / CV text here…" aria-label="${copy.inputLabel}"></textarea>
+                <div class="upload" id="dropzone">
                   <input id="file" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" hidden />
-                  <div class="field__bar">
-                    <div class="field__actions">
-                      <button class="chip" id="choose" type="button"><span class="chip__icon" aria-hidden="true">↑</span> Upload documents</button>
-                    </div>
-                    <span class="counter" id="counter">0 / ${config.maxInputChars}</span>
-                  </div>
+                  <button class="chip" id="choose" type="button"><span class="chip__icon" aria-hidden="true">↑</span> Upload documents</button>
+                  <span class="upload__hint">or drop files here — PDF · Word · ODT · txt · md</span>
                 </div>
                 <ul class="file-list" id="file-list"></ul>
               </div>
             </li>
             <li class="inopt" data-kind="url">
+              ${optCheck('url', 'URL links')}
               <span class="inopt__num" aria-hidden="true">5</span>
               <div class="inopt__body">
                 <span class="inopt__label">Enter URL link <span class="inopt__eg">(e.g., website)</span></span>
@@ -253,13 +257,11 @@ export function mountApp(root: HTMLElement): void {
   `
 
   const $ = <T extends HTMLElement>(sel: string): T => root.querySelector<T>(sel) as T
-  const textarea = $<HTMLTextAreaElement>('#profile')
-  const counter = $<HTMLElement>('#counter')
   const output = $<HTMLElement>('#output')
   const roastBtn = $<HTMLButtonElement>('#roast')
   const fileList = $<HTMLUListElement>('#file-list')
   const urlsContainer = $<HTMLElement>('#urls')
-  const searchResults = $<HTMLElement>('#search-results')
+  const searchStatus = $<HTMLElement>('#search-status')
 
   // Provenance of the current input (uploaded filenames, retrieved sources).
   const sources = new Set<string>()
@@ -307,18 +309,22 @@ export function mountApp(root: HTMLElement): void {
   }
   renderAuthControl()
 
-  const setCounter = (): void => {
-    const n = textarea.value.length
-    counter.textContent = `${n} / ${config.maxInputChars}`
-    counter.classList.toggle('warn', n > config.maxInputChars)
+  // The five include-checkboxes: toggling marks the retrieval stale and dims the row.
+  for (const key of ['orcid', 'openalex', 'github', 'docs', 'url']) {
+    const box = $<HTMLInputElement>(`#check-${key}`)
+    box.addEventListener('change', () => {
+      box.closest('.inopt')?.classList.toggle('inopt--off', !box.checked)
+      markDirty()
+    })
   }
-  textarea.addEventListener('input', () => {
-    setCounter()
-    markDirty()
-  })
 
+  // Typing an ID/URL in a numbered field ticks that source and marks it stale.
   for (const f of NUMBERED) {
-    $<HTMLInputElement>(`#in-${f.source}`).addEventListener('input', markDirty)
+    const field = $<HTMLInputElement>(`#in-${f.source}`)
+    field.addEventListener('input', () => {
+      if (field.value.trim()) setChecked(root, f.source, true)
+      markDirty()
+    })
   }
 
   triggerRoast = (regenerate = false) =>
@@ -356,13 +362,18 @@ export function mountApp(root: HTMLElement): void {
     showDemo(root, output)
   })
 
-  // File upload + drag-and-drop (the whole .field is the drop target).
+  // File upload + drag-and-drop (the whole upload area is the drop target).
+  // No paste box (option 4 is upload-only); a successful extract ticks the box.
   const fileInput = $<HTMLInputElement>('#file')
   const dropzone = $<HTMLElement>('#dropzone')
+  const onDocsChange = (): void => {
+    setChecked(root, 'docs', root.querySelectorAll('.file-list__item.is-ok').length > 0)
+    markDirty()
+  }
   $<HTMLButtonElement>('#choose').addEventListener('click', () => fileInput.click())
   fileInput.addEventListener('change', () => {
     const files = Array.from(fileInput.files ?? [])
-    if (files.length) void processFiles(files, setCounter, fileList, sources, markDirty)
+    if (files.length) void processFiles(files, fileList, sources, onDocsChange)
     fileInput.value = ''
   })
   dropzone.addEventListener('dragover', (e) => {
@@ -374,12 +385,16 @@ export function mountApp(root: HTMLElement): void {
     e.preventDefault()
     dropzone.classList.remove('over')
     const files = Array.from(e.dataTransfer?.files ?? [])
-    if (files.length) void processFiles(files, setCounter, fileList, sources, markDirty)
+    if (files.length) void processFiles(files, fileList, sources, onDocsChange)
   })
 
-  // URL rows (option 5).
-  addUrlRow(urlsContainer, markDirty)
-  $<HTMLButtonElement>('#add-url').addEventListener('click', () => addUrlRow(urlsContainer, markDirty))
+  // URL rows (option 5); a valid URL ticks the box.
+  const onUrlChange = (): void => {
+    setChecked(root, 'url', root.querySelectorAll('.url-row.ok').length > 0)
+    markDirty()
+  }
+  addUrlRow(urlsContainer, onUrlChange)
+  $<HTMLButtonElement>('#add-url').addEventListener('click', () => addUrlRow(urlsContainer, onUrlChange))
 
   // Retrieve data (discrete step) — fetch everything, then show the overview.
   const retrieveBtn = $<HTMLButtonElement>('#retrieve-data')
@@ -392,12 +407,15 @@ export function mountApp(root: HTMLElement): void {
   // Search by name (primary). Re-searching resets the added inputs first.
   const searchQuery = $<HTMLInputElement>('#search-query')
   const resetInputs = (): void => {
-    for (const f of NUMBERED) $<HTMLInputElement>(`#in-${f.source}`).value = ''
+    for (const f of NUMBERED) {
+      resetSourceMatch(root, f.source)
+      $<HTMLInputElement>(`#in-${f.source}`).value = ''
+    }
+    for (const key of ['orcid', 'openalex', 'github', 'docs', 'url']) setChecked(root, key, false)
     urlsContainer.textContent = ''
-    addUrlRow(urlsContainer, markDirty)
-    textarea.value = ''
-    setCounter()
+    addUrlRow(urlsContainer, onUrlChange)
     fileList.textContent = ''
+    searchStatus.textContent = ''
     sources.clear()
     clearRetrieved(root)
   }
@@ -405,7 +423,7 @@ export function mountApp(root: HTMLElement): void {
     roastAbort?.abort()
     roastAbort = null
     resetInputs()
-    void doSearch(searchQuery.value, searchResults, root, markDirty)
+    void doSearch(searchQuery.value, root, searchStatus, markDirty)
   }
   $<HTMLButtonElement>('#search-btn').addEventListener('click', runSearch)
   searchQuery.addEventListener('keydown', (e) => {
@@ -419,7 +437,7 @@ export function mountApp(root: HTMLElement): void {
   // iD so their data is one "Retrieve data" click away and a roast shows the badge.
   if (justLoggedIn) {
     const session = getSession()
-    if (session) loadVerifiedProfile(root, session, searchResults)
+    if (session) loadVerifiedProfile(root, session, searchStatus)
   }
 
   // Share controls.
@@ -441,8 +459,6 @@ export function mountApp(root: HTMLElement): void {
     const text = output.textContent ?? ''
     if (text) downloadImage(text, copy.title, 'roast.png').catch(() => {})
   })
-
-  setCounter()
 }
 
 // --- file upload ---
@@ -454,7 +470,6 @@ const documentTexts = new WeakMap<HTMLElement, string>()
 
 async function processFiles(
   files: File[],
-  setCounter: () => void,
   list: HTMLElement,
   sources: Set<string>,
   onChange: () => void,
@@ -526,19 +541,17 @@ async function processFiles(
               reason.textContent = `Extracted via OCR — ${t.length.toLocaleString('en-GB')} characters used`
               sources.add(file.name)
               ocr.remove()
-              setCounter()
               onChange()
             })
             .catch((e: unknown) => {
               ocr.disabled = false
               reason.textContent =
-                e instanceof UnsupportedFileError ? e.message : 'OCR failed. Paste the text instead.'
+                e instanceof UnsupportedFileError ? e.message : 'OCR failed. Try another file.'
             })
         })
         item.appendChild(ocr)
       }
     }
-    setCounter()
   }
 }
 
@@ -631,28 +644,52 @@ function rankName(name: string, q: string, qTokens: string[]): number {
   return 100 - overlap
 }
 
-// Set a numbered field's value and mark the retrieval stale.
-function fillNumberedField(root: HTMLElement, source: SourceKind, id: string): void {
-  const field = root.querySelector<HTMLInputElement>(`#in-${source}`)
-  if (!field) return
-  field.value = id
-  dirty = true
+// Tick/untick a source's include-checkbox and reflect the dim (excluded) state.
+function setChecked(root: HTMLElement, key: string, on: boolean): void {
+  const box = root.querySelector<HTMLInputElement>(`#check-${key}`)
+  if (!box) return
+  box.checked = on
+  box.closest('.inopt')?.classList.toggle('inopt--off', !on)
 }
 
+// Return a numbered source option to manual-entry mode (hide the match display).
+function resetSourceMatch(root: HTMLElement, source: SourceKind): void {
+  const li = root.querySelector<HTMLElement>(`.inopt[data-source="${source}"]`)
+  if (!li) return
+  const manual = li.querySelector<HTMLElement>('.inopt__manual')
+  const match = li.querySelector<HTMLElement>('.inopt__match')
+  const note = li.querySelector<HTMLElement>('.inopt__note')
+  if (manual) manual.hidden = false
+  if (match) {
+    match.hidden = true
+    match.textContent = ''
+  }
+  if (note) {
+    note.hidden = true
+    note.textContent = ''
+  }
+}
+
+// Show an inline note on a source option (e.g. "no match — enter manually").
+function setSourceNote(root: HTMLElement, source: SourceKind, text: string): void {
+  const note = root.querySelector<HTMLElement>(`.inopt[data-source="${source}"] .inopt__note`)
+  if (!note) return
+  note.textContent = text
+  note.hidden = false
+}
+
+// Search ORCID, OpenAlex and GitHub by name and fold the matches straight into the
+// five-option list: each source's closest match populates its numbered option (as a
+// name, not a raw ID) and ticks it; there is no separate results block.
 async function doSearch(
   query: string,
-  results: HTMLElement,
   root: HTMLElement,
+  status: HTMLElement,
   onChange: () => void,
 ): Promise<void> {
-  results.textContent = ''
   const q = query.trim()
   if (!q) return
-
-  const pending = document.createElement('p')
-  pending.className = 'search__status'
-  pending.textContent = 'Searching…'
-  results.appendChild(pending)
+  status.textContent = 'Searching ORCID, OpenAlex and GitHub…'
 
   const settled = await Promise.all(
     SEARCH_SOURCES.map(async (source) => ({
@@ -660,98 +697,68 @@ async function doSearch(
       result: await searchSource(config.workerUrl, source, q),
     })),
   )
-  results.textContent = ''
+  status.textContent = ''
 
   const nq = normaliseName(query)
   const qTokens = nq ? nq.split(' ') : []
-  const notes: string[] = []
-  let anyGroup = false
+  let anyMatch = false
+  let anyFailure = false
 
   for (const { source, result } of settled) {
     if (!result.ok) {
-      notes.push(`${SOURCE_LABELS[source]}: ${result.reason ?? 'search failed'}`)
+      anyFailure = true
+      setSourceNote(root, source, `Search unavailable — enter your ${SOURCE_LABELS[source]} manually.`)
       continue
     }
     const cands = result.candidates ?? []
     if (!cands.length) {
-      notes.push(`${SOURCE_LABELS[source]}: no matches`)
+      setSourceNote(root, source, `No ${SOURCE_LABELS[source]} match — enter it manually if you have one.`)
       continue
     }
-    anyGroup = true
+    anyMatch = true
     const ranked = cands
       .map((candidate) => ({ candidate, score: rankName(candidate.name, nq, qTokens) }))
       .sort((a, b) => a.score - b.score)
       .map((r) => r.candidate)
-    results.appendChild(searchGroup(source, ranked, root, onChange))
+    applySourceMatch(root, source, ranked, onChange)
   }
 
-  if (!anyGroup) {
-    const empty = document.createElement('p')
-    empty.className = 'search__status'
-    empty.textContent = 'No matches found.'
-    results.appendChild(empty)
-  }
-  for (const note of notes) {
-    const line = document.createElement('p')
-    line.className = 'search__note'
-    line.textContent = note
-    results.appendChild(line)
+  if (!anyMatch) {
+    status.textContent = anyFailure
+      ? 'Search sources are unavailable right now — enter IDs or a URL manually below.'
+      : 'No matches found — enter IDs or a URL manually below.'
   }
 }
 
-// A per-source picker. The most-similar candidate shows at the top (and is
-// selected into the numbered field straight away); any others hide behind a
-// "see more options" foldout. Selecting one moves it to the top, fills the
-// field, and folds the alternatives back in.
-function searchGroup(
+// Fold a source's search matches into its numbered option: show the chosen
+// candidate (name + affiliation) in place of the raw-ID field, store the id, tick
+// the source, and offer the rest under a "see more options" foldout. Picking
+// another moves it to the top and folds the list back in.
+function applySourceMatch(
+  root: HTMLElement,
   source: SourceKind,
   candidates: Candidate[],
-  root: HTMLElement,
   onChange: () => void,
-): HTMLElement {
-  const group = document.createElement('div')
-  group.className = 'search__group'
+): void {
+  const li = root.querySelector<HTMLElement>(`.inopt[data-source="${source}"]`)
+  if (!li) return
+  const input = li.querySelector<HTMLInputElement>(`#in-${source}`)
+  const manual = li.querySelector<HTMLElement>('.inopt__manual')
+  const match = li.querySelector<HTMLElement>('.inopt__match')
+  const note = li.querySelector<HTMLElement>('.inopt__note')
+  if (!input || !manual || !match || !note) return
+  note.hidden = true
+  note.textContent = ''
   let chosen = candidates[0]
 
-  const render = (): void => {
-    group.textContent = ''
-
-    const head = document.createElement('div')
-    head.className = 'search__group-head'
-    const tag = document.createElement('span')
-    tag.className = 'search__tag'
-    tag.textContent = SOURCE_LABELS[source]
-    const hint = document.createElement('span')
-    hint.className = 'search__group-hint'
-    hint.textContent = candidates.length > 1 ? 'Closest match — change below if needed' : 'Match'
-    head.append(tag, hint)
-    group.appendChild(head)
-
-    group.appendChild(candidateRow(chosen))
-
-    const rest = candidates.filter((c) => c !== chosen)
-    if (rest.length) {
-      const more = document.createElement('details')
-      more.className = 'search__more'
-      const summary = document.createElement('summary')
-      summary.className = 'search__more-summary'
-      summary.textContent = `See ${rest.length} more option${rest.length === 1 ? '' : 's'}`
-      more.appendChild(summary)
-      for (const c of rest) more.appendChild(candidateRow(c))
-      group.appendChild(more)
-    }
-  }
-
-  const candidateRow = (candidate: Candidate): HTMLElement => {
+  const chipRow = (candidate: Candidate): HTMLElement => {
     const row = document.createElement('div')
     row.className = 'search__result'
     if (candidate === chosen) row.classList.add('is-selected')
-
     const mark = document.createElement('span')
     mark.className = 'search__pick'
     mark.setAttribute('aria-hidden', 'true')
     mark.textContent = candidate === chosen ? '●' : '○'
-
     const body = document.createElement('div')
     body.className = 'search__body'
     const name = document.createElement('span')
@@ -764,7 +771,6 @@ function searchGroup(
       affil.textContent = candidate.affiliation
       body.appendChild(affil)
     }
-
     const inspect = document.createElement('a')
     inspect.className = 'search__inspect'
     inspect.href = recordUrl({ source, id: candidate.id })
@@ -773,44 +779,74 @@ function searchGroup(
     inspect.title = 'Open the public record in a new tab'
     inspect.innerHTML = 'View record <span aria-hidden="true">↗</span>'
     inspect.addEventListener('click', (e) => e.stopPropagation())
-
     row.append(mark, body, inspect)
     row.setAttribute('role', 'button')
     row.tabIndex = 0
-    const choose = (): void => {
+    const pick = (): void => {
       chosen = candidate
-      fillNumberedField(root, source, candidate.id)
+      input.value = candidate.id
+      setChecked(root, source, true)
       onChange()
       render()
     }
-    row.addEventListener('click', choose)
+    row.addEventListener('click', pick)
     row.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()
-        choose()
+        pick()
       }
     })
     return row
   }
 
-  // Pre-select the closest match so Retrieve data works straight after searching.
-  fillNumberedField(root, source, chosen.id)
+  const render = (): void => {
+    match.textContent = ''
+    match.appendChild(chipRow(chosen))
+    const rest = candidates.filter((c) => c !== chosen)
+    if (rest.length) {
+      const more = document.createElement('details')
+      more.className = 'search__more'
+      const summary = document.createElement('summary')
+      summary.className = 'search__more-summary'
+      summary.textContent = `See ${rest.length} more option${rest.length === 1 ? '' : 's'}`
+      more.appendChild(summary)
+      for (const c of rest) more.appendChild(chipRow(c))
+      match.appendChild(more)
+    }
+    const manualBtn = document.createElement('button')
+    manualBtn.type = 'button'
+    manualBtn.className = 'inopt__manual-toggle'
+    manualBtn.textContent = 'Enter a different ID manually'
+    manualBtn.addEventListener('click', () => {
+      resetSourceMatch(root, source)
+      input.value = ''
+      setChecked(root, source, false)
+      onChange()
+      input.focus()
+    })
+    match.appendChild(manualBtn)
+  }
+
+  input.value = chosen.id
+  setChecked(root, source, true)
+  manual.hidden = true
+  match.hidden = false
   render()
-  return group
+  onChange()
 }
 
-// On a fresh ORCID login, pre-fill the ORCID field with the verified iD and note
-// it, so a single "Retrieve data" click loads the researcher's own record.
+// On a fresh ORCID login, pre-fill the ORCID field with the verified iD, tick it,
+// and note it, so a single "Retrieve data" click loads the researcher's own record.
 function loadVerifiedProfile(
   root: HTMLElement,
   session: { orcid: string; name: string | null },
-  results: HTMLElement,
+  status: HTMLElement,
 ): void {
-  fillNumberedField(root, 'orcid', session.orcid)
-  const note = document.createElement('p')
-  note.className = 'search__note'
-  note.textContent = `Loaded your verified ORCID (${session.orcid}) — press Retrieve data.`
-  results.replaceChildren(note)
+  const input = root.querySelector<HTMLInputElement>('#in-orcid')
+  if (input) input.value = session.orcid
+  setChecked(root, 'orcid', true)
+  dirty = true
+  status.textContent = `Loaded your verified ORCID (${session.orcid}) — press Retrieve data.`
 }
 
 // --- retrieval ---
@@ -831,7 +867,7 @@ interface RetrievedItem {
 
 interface Retrieved {
   items: RetrievedItem[]
-  pasted: string
+  docTexts: string[]
   texts: string[]
   stats: SourceStats[]
   charts: ChartData[]
@@ -897,19 +933,23 @@ function dedupeRecords<T extends { text: string }>(items: T[]): T[] {
   return out
 }
 
-// Resolve every provided input to a concrete {source, id}. The numbered fields
-// force their source; URL rows auto-detect.
+// Resolve every ticked input to a concrete {source, id}. The numbered fields force
+// their source; URL rows auto-detect. Only options whose include-checkbox is ticked
+// are collected, so a user can exclude a mis-matched source.
 function collectInputs(root: HTMLElement): Array<{ source: SourceKind; id: string }> {
   const out: Array<{ source: SourceKind; id: string }> = []
   for (const f of NUMBERED) {
+    if (!root.querySelector<HTMLInputElement>(`#check-${f.source}`)?.checked) continue
     const v = root.querySelector<HTMLInputElement>(`#in-${f.source}`)?.value.trim()
     if (v) out.push({ source: f.source, id: v })
   }
-  for (const el of Array.from(root.querySelectorAll<HTMLInputElement>('.url-row__input'))) {
-    const v = el.value.trim()
-    if (!v) continue
-    const det = detectSource(v)
-    if (det) out.push(det)
+  if (root.querySelector<HTMLInputElement>('#check-url')?.checked) {
+    for (const el of Array.from(root.querySelectorAll<HTMLInputElement>('.url-row__input'))) {
+      const v = el.value.trim()
+      if (!v) continue
+      const det = detectSource(v)
+      if (det) out.push(det)
+    }
   }
   return out
 }
@@ -919,9 +959,9 @@ function collectInputs(root: HTMLElement): Array<{ source: SourceKind; id: strin
 // folded in. Returns the assembled bundle, or null if nothing was provided.
 async function retrieveInputs(root: HTMLElement, sources: Set<string>): Promise<Retrieved | null> {
   const inputs = collectInputs(root)
-  const docTexts = collectDocumentTexts(root)
-  const pasted = root.querySelector<HTMLTextAreaElement>('#profile')?.value.trim() ?? ''
-  if (!inputs.length && !docTexts.length && !pasted) return null
+  const docsChecked = root.querySelector<HTMLInputElement>('#check-docs')?.checked ?? false
+  const docTexts = docsChecked ? collectDocumentTexts(root) : []
+  if (!inputs.length && !docTexts.length) return null
 
   type Slot = { detected: { source: SourceKind; id: string }; item: RetrievedItem }
   const slots: Slot[] = inputs.map((detected) => ({
@@ -970,9 +1010,11 @@ async function retrieveInputs(root: HTMLElement, sources: Set<string>): Promise<
     await fetchSlot(slot)
   }
 
-  const documentItems: RetrievedItem[] = Array.from(
-    root.querySelectorAll<HTMLElement>('.file-list__item.is-ok .file-list__name'),
-  ).map((el) => ({ kind: 'document', label: el.textContent ?? 'Document', ok: true }))
+  const documentItems: RetrievedItem[] = docsChecked
+    ? Array.from(
+        root.querySelectorAll<HTMLElement>('.file-list__item.is-ok .file-list__name'),
+      ).map((el) => ({ kind: 'document', label: el.textContent ?? 'Document', ok: true }))
+    : []
 
   const items = [...slots.map((s) => s.item), ...documentItems]
 
@@ -995,12 +1037,12 @@ async function retrieveInputs(root: HTMLElement, sources: Set<string>): Promise<
   const allPapers = kept.flatMap((k) => k.papers ?? [])
   const mergedPapers = mergePapers(allPapers)
 
-  const profile = [pasted, ...docTexts, ...texts, publicationsBlock(mergedPapers)]
+  const profile = [...docTexts, ...texts, publicationsBlock(mergedPapers)]
     .filter(Boolean)
     .join('\n\n')
     .trim()
 
-  return { items, pasted, texts, stats, charts, mergedPapers, profile }
+  return { items, docTexts, texts, stats, charts, mergedPapers, profile }
 }
 
 // The Retrieve-data step: fetch, store, and render the compact overview.
@@ -1599,14 +1641,9 @@ function renderStatsCard(root: HTMLElement, stats: SourceStats[]): void {
 function showDemo(root: HTMLElement, output: HTMLElement): void {
   roastAbort?.abort()
   roastAbort = null
-  const textarea = root.querySelector<HTMLTextAreaElement>('#profile')
-  if (textarea) {
-    textarea.value = demoResearcher.profile
-    textarea.dispatchEvent(new Event('input'))
-  }
   retrieved = {
     items: [{ kind: 'document', label: `${demoResearcher.name} — simulated demo`, ok: true }],
-    pasted: demoResearcher.profile,
+    docTexts: [demoResearcher.profile],
     texts: [],
     stats: [demoResearcher.stats],
     charts: [demoResearcher.charts],
@@ -1619,7 +1656,7 @@ function showDemo(root: HTMLElement, output: HTMLElement): void {
   if (overview) {
     overview.classList.remove('hidden')
     overview.innerHTML =
-      '<h3 class="overview__title">Sample data</h3><p class="overview__hint">A fully invented researcher — press Roast me to generate a live roast, or edit the pasted text.</p>'
+      '<h3 class="overview__title">Sample data</h3><p class="overview__hint">A fully invented researcher — press Roast me to generate a live roast, or search for a real name above.</p>'
   }
   output.className = 'output'
   output.textContent = demoResearcher.roast
@@ -1904,10 +1941,14 @@ async function exportRetrievedData(exportBtn: HTMLButtonElement): Promise<void> 
       '',
       '_The data the tool retrieved and feeds to the roast._',
       '',
-      '## Pasted / uploaded input',
+      '## Uploaded documents',
       '',
     ]
-    parts.push(data.pasted ? '```\n' + data.pasted + '\n```' : '_None._', '')
+    if (data.docTexts.length) {
+      data.docTexts.forEach((t, i) => parts.push(`### Document ${i + 1}`, '', '```\n' + t + '\n```', ''))
+    } else {
+      parts.push('_None._', '')
+    }
 
     const sourceItems = data.items.filter((it) => it.kind === 'source')
     if (!sourceItems.length) {
