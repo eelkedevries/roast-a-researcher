@@ -14,8 +14,11 @@ This file records what *is* (current reality). The binding design canon is `docs
   after a retrieval) (`054`). Step 01 has a **search-by-name hero** (ORCID/OpenAlex/
   GitHub) whose matches fold **into a single numbered list of five input options**
   (1 ORCID, 2 OpenAlex, 3 GitHub, 4 upload documents, 5 URL link) — there is no
-  separate results block. Option 5 has an **Add** button that retrieves the URL
-  immediately and shows ✓/✗ inline. Each
+  separate results block. Options 1–3 and 5 each have an **Add** button (green
+  "Added" / red "Failed") that retrieves the manually-entered id/URL to confirm it;
+  the include-checkbox ticks only on a successful Add (or a search-match pick). In
+  the overview, papers and Personalia "Education" are ordered chronologically by
+  year; the GitHub foldout is titled "repositories" and lists names only. Each
   source option shows its closest match as the researcher's **name** (not the raw ID),
   with a "see more options" foldout and an "enter a different ID manually" toggle
   inline; picking an alternative promotes it and folds the rest back. **Each option has

@@ -85,7 +85,10 @@ export function mountApp(root: HTMLElement): void {
         <div class="inopt__body">
           <label class="inopt__label" for="in-${f.source}">${f.label}</label>
           <div class="inopt__manual">
-            <input id="in-${f.source}" class="input inopt__input" type="text" placeholder="${f.ph}" aria-label="${f.label} — ${f.ph}" />
+            <div class="inopt__manual-row">
+              <input id="in-${f.source}" class="input inopt__input" type="text" placeholder="${f.ph}" aria-label="${f.label} — ${f.ph}" />
+              <button id="add-${f.source}" class="inopt__add" type="button" disabled>Add</button>
+            </div>
             <small class="inopt__hint">${f.hint}</small>
           </div>
           <div class="inopt__match" hidden></div>
@@ -323,12 +326,24 @@ export function mountApp(root: HTMLElement): void {
     })
   }
 
-  // Typing an ID/URL in a numbered field ticks that source and marks it stale.
+  // Numbered fields 1–3: like the URL row, a manually-entered ID is confirmed with
+  // an "Add" button that retrieves it and shows green "Added" / red "Failed"; only a
+  // successful Add (or a search-match pick) ticks the source. Editing un-confirms it.
   for (const f of NUMBERED) {
     const field = $<HTMLInputElement>(`#in-${f.source}`)
+    const addBtn = $<HTMLButtonElement>(`#add-${f.source}`)
     field.addEventListener('input', () => {
-      if (field.value.trim()) setChecked(root, f.source, true)
+      setChecked(root, f.source, false)
+      resetInoptAdd(root, f.source)
       markDirty()
+    })
+    addBtn.addEventListener('click', () => {
+      const v = field.value.trim()
+      if (!v) return
+      void verifyAndAdd(addBtn, 'inopt__add', f.source, v).then((ok) => {
+        setChecked(root, f.source, ok)
+        markDirty()
+      })
     })
   }
 
@@ -415,6 +430,7 @@ export function mountApp(root: HTMLElement): void {
     for (const f of NUMBERED) {
       resetSourceMatch(root, f.source)
       $<HTMLInputElement>(`#in-${f.source}`).value = ''
+      resetInoptAdd(root, f.source)
     }
     for (const key of ['orcid', 'openalex', 'github', 'docs', 'url']) setChecked(root, key, false)
     urlsContainer.textContent = ''
@@ -632,10 +648,41 @@ function updateUrlRow(row: HTMLElement): void {
   if (addBtn) addBtn.disabled = false
 }
 
+// Retrieve {source, id} now and turn a status button into a spinner → green "Added"
+// / red "Failed" (the failure reason is kept as its tooltip). `base` is the button's
+// own class, so this is shared by the URL row and the numbered-field Add buttons.
+async function verifyAndAdd(
+  btn: HTMLButtonElement,
+  base: string,
+  source: SourceKind,
+  id: string,
+): Promise<boolean> {
+  btn.className = `${base} is-loading`
+  btn.setAttribute('aria-busy', 'true')
+  btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>'
+  const res = await retrieveSource(config.workerUrl, source, id)
+  btn.removeAttribute('aria-busy')
+  const ok = !!(res.ok && res.text)
+  btn.className = `${base} ${ok ? 'is-ok' : 'is-bad'}`
+  btn.textContent = ok ? 'Added' : 'Failed'
+  btn.title = ok ? '' : res.reason ?? 'Could not retrieve this.'
+  return ok
+}
+
+// Return a numbered field's Add button to its idle state (disabled while empty).
+function resetInoptAdd(root: HTMLElement, source: SourceKind): void {
+  const field = root.querySelector<HTMLInputElement>(`#in-${source}`)
+  const addBtn = root.querySelector<HTMLButtonElement>(`#add-${source}`)
+  if (!field || !addBtn) return
+  addBtn.className = 'inopt__add'
+  addBtn.textContent = 'Add'
+  addBtn.title = ''
+  addBtn.disabled = !field.value.trim()
+}
+
 // "Add" a URL: retrieve it now so the user can confirm a website yields data before
-// roasting. The button itself is the status — a spinner while working, then a green
-// "Added" or a red "Failed" (the reason is kept as its tooltip). The Retrieve-data
-// step re-fetches; the Worker caches retrievals, so this is not a wasted round-trip.
+// roasting. The button itself is the status. The Retrieve-data step re-fetches; the
+// Worker caches retrievals, so this is not a wasted round-trip.
 async function addUrl(row: HTMLElement, onChange: () => void): Promise<void> {
   const input = row.querySelector<HTMLInputElement>('.url-row__input')
   const addBtn = row.querySelector<HTMLButtonElement>('.url-row__add')
@@ -645,22 +692,8 @@ async function addUrl(row: HTMLElement, onChange: () => void): Promise<void> {
     updateUrlRow(row)
     return
   }
-  addBtn.className = 'url-row__add is-loading'
-  addBtn.setAttribute('aria-busy', 'true')
-  addBtn.innerHTML = '<span class="spinner" aria-hidden="true"></span>'
-  const res = await retrieveSource(config.workerUrl, det.source, det.id)
-  addBtn.removeAttribute('aria-busy')
-  if (res.ok && res.text) {
-    addBtn.className = 'url-row__add is-ok'
-    addBtn.textContent = 'Added'
-    addBtn.title = ''
-    row.dataset.added = '1'
-  } else {
-    addBtn.className = 'url-row__add is-bad'
-    addBtn.textContent = 'Failed'
-    addBtn.title = res.reason ?? 'Could not retrieve this link.'
-    row.dataset.added = ''
-  }
+  const ok = await verifyAndAdd(addBtn, 'url-row__add', det.source, det.id)
+  row.dataset.added = ok ? '1' : ''
   onChange()
 }
 
@@ -870,6 +903,7 @@ function applySourceMatch(
       resetSourceMatch(root, source)
       input.value = ''
       setChecked(root, source, false)
+      resetInoptAdd(root, source)
       onChange()
       input.focus()
     })
@@ -1336,13 +1370,17 @@ function renderOverview(root: HTMLElement, data: Retrieved): void {
     .flatMap((it) => parseRepos(it.text as string))
   const links = okSources.filter((it) => it.source === 'website').length
 
-  // Papers foldout — deselect to drop a paper from the roast.
+  // Papers foldout — listed chronologically by year (oldest first); deselect to drop
+  // a paper from the roast.
   if (data.mergedPapers.length) {
+    const papersByYear = [...data.mergedPapers].sort(
+      (a, b) => (a.year ?? Infinity) - (b.year ?? Infinity),
+    )
     overview.appendChild(
       selectionFoldout(
         'papers',
         'via ORCID · OpenAlex',
-        data.mergedPapers.map((p) => ({
+        papersByYear.map((p) => ({
           primary: p.title ?? '(untitled)',
           secondary: paperMeta(p),
           initial: !!p.title && !excludedPaperKeys.has(paperKey(p.title)),
@@ -1356,14 +1394,14 @@ function renderOverview(root: HTMLElement, data: Retrieved): void {
     )
   }
 
-  // Projects foldout — deselect to drop a repository from the roast.
+  // Repositories foldout — repository names only (no language); deselect to drop one.
   if (repos.length) {
     overview.appendChild(
       selectionFoldout(
-        'projects',
+        'repositories',
         'via GitHub',
         repos.map((r) => ({
-          primary: r.display,
+          primary: r.name,
           initial: !excludedRepos.has(r.name),
           onToggle: (on) => {
             if (on) excludedRepos.delete(r.name)
@@ -1580,6 +1618,23 @@ const asStrList = (v: unknown): string[] =>
     ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map((s) => s.trim())
     : []
 
+// Sort text entries chronologically by the (last) year each contains; entries with
+// no year keep to the end. Oldest first.
+function sortByYear(entries: string[]): string[] {
+  const yearOf = (s: string): number | null => {
+    const years = s.match(/\b(?:19|20)\d{2}\b/g)
+    return years ? Number(years[years.length - 1]) : null
+  }
+  return [...entries].sort((a, b) => {
+    const ya = yearOf(a)
+    const yb = yearOf(b)
+    if (ya == null && yb == null) return 0
+    if (ya == null) return 1
+    if (yb == null) return -1
+    return ya - yb
+  })
+}
+
 // Render the structured Personalia + Profiles/Grants/Awards + Papers sections from
 // the model's JSON block. Empty fields and sections are omitted. `data` is null
 // when the model did not return a parseable block (sections stay hidden).
@@ -1608,7 +1663,7 @@ function renderResult(root: HTMLElement, data: Personalia | null): void {
   addRow('Previous affiliations', asStrList(data?.previousAffiliations).join('; '))
   addRow('Research domain', asStr(data?.researchDomain))
   addRow('Research focus', asStrList(data?.researchFocus).join(', '))
-  addRow('Education', asStrList(data?.education).join('; '))
+  addRow('Education', sortByYear(asStrList(data?.education)).join('; '))
 
   renderProfiles(root)
   renderSubList(root, '#sub-grants', '#p-grants', asStrList(data?.grants))

@@ -72,6 +72,13 @@ From review of the first cut:
 - **Include-checkboxes tick only once ≥1 item is *processed*:** the documents box
   ticks when a file extracts successfully, and the URL box only when a link has been
   successfully **Added** (not merely typed). `collectInputs` includes only Added URLs.
+- **Numbered fields 1–3 get the same "Add" button:** a manually-entered ORCID/
+  OpenAlex/GitHub id is confirmed with an Add button (spinner → green Added / red
+  Failed) that ticks the source only on success; a search-match pick still auto-ticks.
+- **Overview ordering/labels:** papers and Personalia "Education" are listed
+  chronologically by year (oldest first); the GitHub foldout is titled
+  **"repositories"** (not "projects") and lists repository **names only** (no
+  language/description).
 - **PDF upload fix.** The pdf.js worker is bundled through Vite (`?worker`,
   `worker: { format: 'es' }`) so it ships as a hashed `.js` chunk. The previous raw
   `pdf.worker.min.mjs` was served with a non-JS MIME type by the static host, which
