@@ -7,13 +7,12 @@ import {
   retrieveSource,
   searchSource,
   type SourceKind,
-  type Candidate,
   type SourceStats,
   type ChartData,
   type ApiPaper,
 } from './sources'
 import { renderCharts } from './charts'
-import { consumeAuthFragment, getSession, loginUrl, logout, normaliseOrcid } from './auth'
+import { getSession, normaliseOrcid } from './auth'
 
 const SOURCE_LABELS: Record<SourceKind, string> = {
   github: 'GitHub',
@@ -27,13 +26,32 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
 // search; the numbered fields 1–3 correspond to them.
 const SEARCH_SOURCES: readonly SourceKind[] = ['orcid', 'openalex', 'github']
 
-// The three numbered fields that take a single structured identifier each. The
-// source is fixed by the field, so a bare id or a profile URL both work.
-const NUMBERED: ReadonlyArray<{ n: number; source: SourceKind; label: string; ph: string; hint: string }> = [
-  { n: 1, source: 'orcid', label: 'ORCID', ph: 'ORCID iD or profile URL', hint: 'e.g. 0000-0002-1825-0097' },
-  { n: 2, source: 'openalex', label: 'OpenAlex', ph: 'OpenAlex author ID or URL', hint: 'e.g. A5023888391' },
-  { n: 3, source: 'github', label: 'GitHub', ph: 'GitHub username or URL', hint: 'e.g. torvalds' },
+// The five numbered input rows. Rows 1–3 and 5 take a single identifier field
+// with an "Add" button (`kind: 'source'`); the source is fixed for 1–3, while
+// the Website row auto-detects. Row 4 is the upload/drop area (`kind: 'docs'`)
+// with a "Browse" button. The number badge is each row's include indicator.
+interface InputRow {
+  n: number
+  key: string
+  label: string
+  kind: 'source' | 'docs'
+  source?: SourceKind
+  ph?: string
+}
+const INPUT_ROWS: ReadonlyArray<InputRow> = [
+  { n: 1, key: 'orcid', label: 'ORCID', kind: 'source', source: 'orcid', ph: '0000-0002-1825-0097 or profile URL' },
+  { n: 2, key: 'openalex', label: 'OpenAlex', kind: 'source', source: 'openalex', ph: 'A5023888391 or author URL' },
+  { n: 3, key: 'github', label: 'GitHub', kind: 'source', source: 'github', ph: 'username or profile URL' },
+  { n: 4, key: 'docs', label: 'Documents', kind: 'docs' },
+  { n: 5, key: 'website', label: 'Website', kind: 'source', source: 'website', ph: 'https://your-site.com or any profile URL' },
 ]
+// The identifier rows (1–3, 5): a fixed-source field plus Add button, wired the
+// same way. The Website row auto-detects its source on Add.
+const SOURCE_ROWS: ReadonlyArray<InputRow & { source: SourceKind }> = INPUT_ROWS.filter(
+  (r): r is InputRow & { source: SourceKind } => r.kind === 'source' && !!r.source,
+)
+// Every row's include-indicator key, in order (used to reset the badges).
+const ROW_KEYS: readonly string[] = INPUT_ROWS.map((r) => r.key)
 
 // scrollIntoView ignores the CSS scroll-behavior override, so honour the
 // reduced-motion preference explicitly.
@@ -75,43 +93,67 @@ export function mountApp(root: HTMLElement): void {
       )
       .join('') +
     `</div>`
-  const optCheck = (key: string, label: string): string =>
-    `<label class="inopt__check"><input type="checkbox" id="check-${key}" class="inopt__checkbox" aria-label="Include ${label}" /><span class="inopt__box" aria-hidden="true"></span></label>`
-  const numberedRows = NUMBERED.map(
-    (f) => `
-      <li class="inopt" data-source="${f.source}">
-        ${optCheck(f.source, f.label)}
-        <span class="inopt__num" aria-hidden="true">${f.n}</span>
-        <div class="inopt__body">
-          <label class="inopt__label" for="in-${f.source}">${f.label}</label>
-          <div class="inopt__manual">
-            <div class="inopt__manual-row">
-              <input id="in-${f.source}" class="input inopt__input" type="text" placeholder="${f.ph}" aria-label="${f.label} — ${f.ph}" />
-              <button id="add-${f.source}" class="inopt__add" type="button" disabled>Add</button>
-            </div>
-            <small class="inopt__hint">${f.hint}</small>
-          </div>
-          <div class="inopt__match" hidden></div>
-          <p class="inopt__note" hidden></p>
-        </div>
-      </li>`,
-  ).join('')
+  // The number badge is the row's include indicator: it wraps a hidden checkbox
+  // (`#check-<key>`, the state store every collect/reset/tick path already reads)
+  // and fills gold when the source is included.
+  const numBadge = (key: string, n: number, label: string): string =>
+    `<label class="inopt__num"><input type="checkbox" id="check-${key}" class="inopt__checkbox" aria-label="Include ${label}" /><span class="inopt__num-mark" aria-hidden="true">${n}</span></label>`
+  const rowMarkup = (r: InputRow): string => {
+    const field =
+      r.kind === 'docs'
+        ? `<div class="inopt__drop" id="dropzone">
+             <input id="file" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" hidden />
+             <span class="inopt__drop-icon" aria-hidden="true">↑</span>
+             <span class="inopt__drop-text">Drop a CV here — PDF · Word · ODT · txt</span>
+           </div>`
+        : `<input id="in-${r.key}" class="inopt__field" type="${r.source === 'website' ? 'url' : 'text'}" placeholder="${r.ph}" aria-label="${r.label} — ${r.ph}" />`
+    const action =
+      r.kind === 'docs'
+        ? `<button id="choose" class="inopt__action" type="button">Browse</button>`
+        : `<button id="add-${r.key}" class="inopt__action inopt__add" type="button" disabled>Add</button>`
+    const tail = r.kind === 'docs' ? '<ul class="file-list" id="file-list"></ul>' : ''
+    return `
+      <li class="inopt" data-row="${r.key}">
+        ${numBadge(r.key, r.n, r.label)}
+        <span class="inopt__label" ${r.kind === 'docs' ? '' : `id="label-${r.key}"`}>${r.label}</span>
+        ${field}
+        ${action}
+        ${tail}
+      </li>`
+  }
+  const inputRows = INPUT_ROWS.map(rowMarkup).join('')
   root.innerHTML = `
     <a class="skip-link" href="#main">Skip to content</a>
-    <header class="topbar">
-      <div class="topbar__inner">
-        <a class="topbar__home" href="https://eelkedevries.com/">Eelke de Vries</a>
-        <span class="topbar__sep" aria-hidden="true">/</span>
-        <span class="topbar__here">Roast a Researcher</span>
+    <header class="masthead" style="--banner:url('${import.meta.env.BASE_URL}black_hole_eye_banner.jpg');--banner-portrait:url('${import.meta.env.BASE_URL}black_hole_eye_banner_portrait.jpg')">
+      <div class="banner-img" role="img" aria-label="A blue human iris at the centre of a black-hole accretion disk"></div>
+      <div class="banner-fade"></div>
+      <div class="banner-inner">
+        <a class="namelink" href="https://eelkedevries.com/" title="Home" aria-label="Home — Eelke de Vries">
+          <span class="name">Eelke de Vries, PhD</span>
+          <span class="role">Cognitive neuroscientist</span>
+        </a>
+        <div class="banner-social">
+          <a href="https://eelkedevries.com/contact.html" title="Contact" aria-label="Contact"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m2 7 10 6 10-6"></path></svg></a>
+          <a href="https://scholar.google.nl/citations?user=UGVOZHcAAAAJ" target="_blank" rel="noopener" title="Google Scholar" aria-label="Google Scholar"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M5.242 13.769L0 9.5 12 0l12 9.5-5.242 4.269C17.548 11.249 14.978 9.5 12 9.5c-2.977 0-5.548 1.748-6.758 4.269zM12 10a7 7 0 1 0 0 14 7 7 0 0 0 0-14z"></path></svg></a>
+          <a href="https://github.com/eelkedevries" target="_blank" rel="noopener" title="GitHub" aria-label="GitHub"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a12 12 0 0 0-3.79 23.4c.6.1.82-.26.82-.58v-2c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.07 1.83 2.8 1.3 3.49.99.1-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.3-.54-1.52.11-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.3-1.55 3.3-1.23 3.3-1.23.65 1.66.24 2.88.12 3.18.77.84 1.23 1.91 1.23 3.22 0 4.61-2.8 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5z"></path></svg></a>
+          <a href="https://www.linkedin.com/in/eelkedevries" target="_blank" rel="noopener" title="LinkedIn" aria-label="LinkedIn"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.8 0 0 .78 0 1.74v20.52C0 23.22.8 24 1.77 24h20.45c.98 0 1.78-.78 1.78-1.74V1.74C24 .78 23.2 0 22.22 0z"></path></svg></a>
+        </div>
       </div>
     </header>
+    <div class="pipenav-wrap">
+      <div class="nav-hairline"></div>
+      <nav class="pipenav" aria-label="Primary">
+        <a href="https://eelkedevries.com/about.html">About</a>
+        <a href="https://eelkedevries.com/research.html">Research</a>
+        <a href="https://eelkedevries.com/publications.html">Publications</a>
+        <a href="https://eelkedevries.com/projects.html">Projects</a>
+        <a href="https://eelkedevries.com/blog/">Observations</a>
+        <a href="https://eelkedevries.com/contact.html">Contact</a>
+      </nav>
+    </div>
     <main class="wrap" id="main">
       <header>
-        <p class="kicker">Self-directed academic comedy</p>
         <h1>${copy.title}</h1>
-        <p class="tagline">${copy.tagline}</p>
-        <p class="framing">${copy.framing}</p>
-        <div class="auth" id="auth-control"></div>
       </header>
 
       <section class="form" aria-label="Roast input">
@@ -121,39 +163,17 @@ export function mountApp(root: HTMLElement): void {
             <h2 class="step__title">Add your data</h2>
             <button class="step__sample" id="sample" type="button">See a sample roast</button>
           </div>
+          <p class="step__subtitle">Search by name, or add sources directly</p>
 
           <div class="search-hero">
             <span class="search-hero__icon" aria-hidden="true">⌕</span>
-            <input id="search-query" class="search-hero__input" type="text" placeholder="Search for a researcher by name…" aria-label="Search for a researcher by name" />
+            <input id="search-query" class="search-hero__input" type="text" placeholder="Search for a researcher by name" aria-label="Search for a researcher by name" />
             <button class="btn btn--primary search-hero__btn" id="search-btn" type="button">Search</button>
           </div>
-          <p class="search-hint">Searches ORCID, OpenAlex and GitHub. Matches fill the options below — tick the ones to include, and change a match under “see more options”.</p>
           <p id="search-status" class="search-status" aria-live="polite"></p>
 
           <ol class="inputs" id="inputs" aria-label="Input options">
-            ${numberedRows}
-            <li class="inopt" data-kind="docs">
-              ${optCheck('docs', 'uploaded documents')}
-              <span class="inopt__num" aria-hidden="true">4</span>
-              <div class="inopt__body">
-                <span class="inopt__label">Upload documents <span class="inopt__eg">(e.g., CV)</span></span>
-                <div class="upload" id="dropzone">
-                  <input id="file" type="file" multiple accept=".txt,.md,.pdf,.docx,.odt" hidden />
-                  <button class="chip" id="choose" type="button"><span class="chip__icon" aria-hidden="true">↑</span> Upload documents</button>
-                  <span class="upload__hint">or drop files here — PDF · Word · ODT · txt · md</span>
-                </div>
-                <ul class="file-list" id="file-list"></ul>
-              </div>
-            </li>
-            <li class="inopt" data-kind="url">
-              ${optCheck('url', 'URL links')}
-              <span class="inopt__num" aria-hidden="true">5</span>
-              <div class="inopt__body">
-                <span class="inopt__label">Enter URL link <span class="inopt__eg">(e.g., website)</span></span>
-                <div id="urls"></div>
-                <button class="chip" id="add-url" type="button"><span class="chip__icon" aria-hidden="true">+</span> Add another link</button>
-              </div>
-            </li>
+            ${inputRows}
           </ol>
 
           <div class="retrieve">
@@ -235,7 +255,7 @@ export function mountApp(root: HTMLElement): void {
 
         <section class="rsec hidden" id="sec-papers">
           <h2 class="rsec__h">Papers</h2>
-          <p class="papers-hint">Tick any that are not this researcher's — sources occasionally mis-attribute — then re-roast.</p>
+          <p class="papers-hint">Tick any that aren’t this researcher’s, then re-roast.</p>
           <ol class="papers" id="papers"></ol>
           <button class="btn btn--ghost hidden" id="papers-reroast" type="button">Re-roast without marked papers</button>
         </section>
@@ -259,7 +279,7 @@ export function mountApp(root: HTMLElement): void {
       <div class="footer-inner">
         <span class="copy"><span class="bdot" aria-hidden="true"></span>&copy; Eelke de Vries · <a href="https://eelkedevries.com/">eelkedevries.com</a></span>
         <p class="privacy">${copy.privacyNotice}
-          <a href="${copy.providerPolicyUrl}" target="_blank" rel="noopener">${copy.providerPolicyLabel}</a>.</p>
+          <a href="${copy.providerPolicyUrl}" target="_blank" rel="noopener">${copy.providerPolicyLabel}</a> before pasting anything sensitive.</p>
       </div>
     </footer>
   `
@@ -268,7 +288,6 @@ export function mountApp(root: HTMLElement): void {
   const output = $<HTMLElement>('#output')
   const roastBtn = $<HTMLButtonElement>('#roast')
   const fileList = $<HTMLUListElement>('#file-list')
-  const urlsContainer = $<HTMLElement>('#urls')
   const searchStatus = $<HTMLElement>('#search-status')
 
   // Provenance of the current input (uploaded filenames, retrieved sources).
@@ -281,44 +300,9 @@ export function mountApp(root: HTMLElement): void {
     dirty = true
   }
 
-  // ORCID login control (session-only). Read any token the Worker returned in the
-  // URL fragment, then render the header control reflecting the current session.
-  const { justLoggedIn } = consumeAuthFragment()
-  const renderAuthControl = (): void => {
-    const el = root.querySelector<HTMLElement>('#auth-control')
-    if (!el) return
-    if (!config.orcidLoginEnabled) {
-      el.hidden = true
-      return
-    }
-    el.hidden = false
-    el.textContent = ''
-    const session = getSession()
-    if (session) {
-      const who = document.createElement('span')
-      who.className = 'auth__who'
-      who.textContent = `${copy.loggedInLabel} ${session.orcid}`
-      const out = document.createElement('button')
-      out.type = 'button'
-      out.className = 'auth__btn'
-      out.textContent = copy.logoutButton
-      out.addEventListener('click', () => {
-        logout()
-        renderAuthControl()
-      })
-      el.append(who, out)
-    } else {
-      const link = document.createElement('a')
-      link.className = 'auth__btn auth__btn--login'
-      link.href = loginUrl()
-      link.textContent = copy.loginButton
-      el.append(link)
-    }
-  }
-  renderAuthControl()
-
-  // The five include-checkboxes: toggling marks the retrieval stale and dims the row.
-  for (const key of ['orcid', 'openalex', 'github', 'docs', 'url']) {
+  // Each row's number badge is its include indicator (a hidden checkbox behind
+  // the badge). Toggling it marks the retrieval stale.
+  for (const key of ROW_KEYS) {
     const box = $<HTMLInputElement>(`#check-${key}`)
     box.addEventListener('change', () => {
       box.closest('.inopt')?.classList.toggle('inopt--off', !box.checked)
@@ -326,22 +310,31 @@ export function mountApp(root: HTMLElement): void {
     })
   }
 
-  // Numbered fields 1–3: like the URL row, a manually-entered ID is confirmed with
-  // an "Add" button that retrieves it and shows green "Added" / red "Failed"; only a
-  // successful Add (or a search-match pick) ticks the source. Editing un-confirms it.
-  for (const f of NUMBERED) {
-    const field = $<HTMLInputElement>(`#in-${f.source}`)
-    const addBtn = $<HTMLButtonElement>(`#add-${f.source}`)
+  // Identifier rows (1–3, 5): a manually-entered value is confirmed with an "Add"
+  // button that retrieves it and shows green "Added" / red "Failed"; only a
+  // successful Add (or a search-match pick) ticks the source. Editing un-confirms
+  // it. Rows 1–3 force their source; the Website row auto-detects it.
+  for (const r of SOURCE_ROWS) {
+    const field = $<HTMLInputElement>(`#in-${r.key}`)
+    const addBtn = $<HTMLButtonElement>(`#add-${r.key}`)
     field.addEventListener('input', () => {
-      setChecked(root, f.source, false)
-      resetInoptAdd(root, f.source)
+      setChecked(root, r.key, false)
+      resetInoptAdd(root, r.key)
       markDirty()
     })
     addBtn.addEventListener('click', () => {
       const v = field.value.trim()
       if (!v) return
-      void verifyAndAdd(addBtn, 'inopt__add', f.source, v).then((ok) => {
-        setChecked(root, f.source, ok)
+      // The Website row accepts any recognisable link/ID; the others are fixed.
+      const detected = r.source === 'website' ? detectSource(v) : { source: r.source, id: v }
+      if (!detected) {
+        addBtn.className = 'inopt__action inopt__add is-bad'
+        addBtn.textContent = 'Failed'
+        addBtn.title = 'Not a recognisable link or ID.'
+        return
+      }
+      void verifyAndAdd(addBtn, 'inopt__action inopt__add', detected.source, detected.id).then((ok) => {
+        setChecked(root, r.key, ok)
         markDirty()
       })
     })
@@ -408,14 +401,6 @@ export function mountApp(root: HTMLElement): void {
     if (files.length) void processFiles(files, fileList, sources, onDocsChange)
   })
 
-  // URL rows (option 5); the box ticks only once a URL has been successfully Added.
-  const onUrlChange = (): void => {
-    setChecked(root, 'url', root.querySelectorAll('.url-row[data-added="1"]').length > 0)
-    markDirty()
-  }
-  addUrlRow(urlsContainer, onUrlChange)
-  $<HTMLButtonElement>('#add-url').addEventListener('click', () => addUrlRow(urlsContainer, onUrlChange))
-
   // Retrieve data (discrete step) — fetch everything, then show the overview.
   const retrieveBtn = $<HTMLButtonElement>('#retrieve-data')
   retrieveBtn.addEventListener('click', () => void runRetrieve(root, sources))
@@ -427,14 +412,11 @@ export function mountApp(root: HTMLElement): void {
   // Search by name (primary). Re-searching resets the added inputs first.
   const searchQuery = $<HTMLInputElement>('#search-query')
   const resetInputs = (): void => {
-    for (const f of NUMBERED) {
-      resetSourceMatch(root, f.source)
-      $<HTMLInputElement>(`#in-${f.source}`).value = ''
-      resetInoptAdd(root, f.source)
+    for (const r of SOURCE_ROWS) {
+      $<HTMLInputElement>(`#in-${r.key}`).value = ''
+      resetInoptAdd(root, r.key)
     }
-    for (const key of ['orcid', 'openalex', 'github', 'docs', 'url']) setChecked(root, key, false)
-    urlsContainer.textContent = ''
-    addUrlRow(urlsContainer, onUrlChange)
+    for (const key of ROW_KEYS) setChecked(root, key, false)
     fileList.textContent = ''
     searchStatus.textContent = ''
     sources.clear()
@@ -453,13 +435,6 @@ export function mountApp(root: HTMLElement): void {
       runSearch()
     }
   })
-
-  // Straight after a fresh ORCID login, pre-fill the verified researcher's own
-  // iD so their data is one "Retrieve data" click away and a roast shows the badge.
-  if (justLoggedIn) {
-    const session = getSession()
-    if (session) loadVerifiedProfile(root, session, searchStatus)
-  }
 
   // Share controls.
   $<HTMLButtonElement>('#s-copy').addEventListener('click', () => {
@@ -590,67 +565,11 @@ function collectDocumentTexts(root: HTMLElement): string[] {
     .filter((t): t is string => !!t && t.trim() !== '')
 }
 
-// --- URL rows (option 5) ---
-
-function addUrlRow(container: HTMLElement, onChange: () => void, value = ''): HTMLElement {
-  const row = document.createElement('div')
-  row.className = 'url-row'
-  row.innerHTML =
-    '<div class="url-row__top">' +
-    '<input class="input url-row__input" type="url" placeholder="https://your-site.com, or any profile URL" aria-label="URL link" />' +
-    '<button class="url-row__add" type="button" disabled>Add</button>' +
-    '<button class="url-row__remove" type="button" aria-label="Remove link">×</button></div>'
-  const input = row.querySelector<HTMLInputElement>('.url-row__input') as HTMLInputElement
-  const addBtn = row.querySelector<HTMLButtonElement>('.url-row__add') as HTMLButtonElement
-  if (value) input.value = value
-  ;(row.querySelector('.url-row__remove') as HTMLButtonElement).addEventListener('click', () => {
-    row.remove()
-    onChange()
-  })
-  input.addEventListener('input', () => {
-    // Editing the URL invalidates any earlier "Added"/"Failed" result.
-    row.dataset.added = ''
-    resetAddButton(addBtn)
-    updateUrlRow(row)
-    onChange()
-  })
-  input.addEventListener('blur', () => updateUrlRow(row))
-  addBtn.addEventListener('click', () => void addUrl(row, onChange))
-  container.appendChild(row)
-  updateUrlRow(row)
-  return row
-}
-
-function resetAddButton(addBtn: HTMLButtonElement): void {
-  addBtn.className = 'url-row__add'
-  addBtn.textContent = 'Add'
-  addBtn.title = ''
-  addBtn.removeAttribute('aria-busy')
-}
-
-// Enable the "Add" button only for a valid link; an unusable value flags the input
-// (red border) with no extra message.
-function updateUrlRow(row: HTMLElement): void {
-  const input = row.querySelector<HTMLInputElement>('.url-row__input') as HTMLInputElement
-  const addBtn = row.querySelector<HTMLButtonElement>('.url-row__add')
-  const v = input.value.trim()
-  row.classList.remove('ok', 'bad')
-  if (!v) {
-    if (addBtn) addBtn.disabled = true
-    return
-  }
-  if (!detectSource(v)) {
-    row.classList.add('bad')
-    if (addBtn) addBtn.disabled = true
-    return
-  }
-  row.classList.add('ok')
-  if (addBtn) addBtn.disabled = false
-}
+// --- Add-to-verify (identifier rows) ---
 
 // Retrieve {source, id} now and turn a status button into a spinner → green "Added"
 // / red "Failed" (the failure reason is kept as its tooltip). `base` is the button's
-// own class, so this is shared by the URL row and the numbered-field Add buttons.
+// own class, so this is shared by every identifier row's Add button.
 async function verifyAndAdd(
   btn: HTMLButtonElement,
   base: string,
@@ -669,32 +588,15 @@ async function verifyAndAdd(
   return ok
 }
 
-// Return a numbered field's Add button to its idle state (disabled while empty).
-function resetInoptAdd(root: HTMLElement, source: SourceKind): void {
-  const field = root.querySelector<HTMLInputElement>(`#in-${source}`)
-  const addBtn = root.querySelector<HTMLButtonElement>(`#add-${source}`)
+// Return an identifier row's Add button to its idle state (disabled while empty).
+function resetInoptAdd(root: HTMLElement, key: string): void {
+  const field = root.querySelector<HTMLInputElement>(`#in-${key}`)
+  const addBtn = root.querySelector<HTMLButtonElement>(`#add-${key}`)
   if (!field || !addBtn) return
-  addBtn.className = 'inopt__add'
+  addBtn.className = 'inopt__action inopt__add'
   addBtn.textContent = 'Add'
   addBtn.title = ''
   addBtn.disabled = !field.value.trim()
-}
-
-// "Add" a URL: retrieve it now so the user can confirm a website yields data before
-// roasting. The button itself is the status. The Retrieve-data step re-fetches; the
-// Worker caches retrievals, so this is not a wasted round-trip.
-async function addUrl(row: HTMLElement, onChange: () => void): Promise<void> {
-  const input = row.querySelector<HTMLInputElement>('.url-row__input')
-  const addBtn = row.querySelector<HTMLButtonElement>('.url-row__add')
-  if (!input || !addBtn) return
-  const det = detectSource(input.value.trim())
-  if (!det) {
-    updateUrlRow(row)
-    return
-  }
-  const ok = await verifyAndAdd(addBtn, 'url-row__add', det.source, det.id)
-  row.dataset.added = ok ? '1' : ''
-  onChange()
 }
 
 // --- search by name ---
@@ -734,35 +636,9 @@ function setChecked(root: HTMLElement, key: string, on: boolean): void {
   box.closest('.inopt')?.classList.toggle('inopt--off', !on)
 }
 
-// Return a numbered source option to manual-entry mode (hide the match display).
-function resetSourceMatch(root: HTMLElement, source: SourceKind): void {
-  const li = root.querySelector<HTMLElement>(`.inopt[data-source="${source}"]`)
-  if (!li) return
-  const manual = li.querySelector<HTMLElement>('.inopt__manual')
-  const match = li.querySelector<HTMLElement>('.inopt__match')
-  const note = li.querySelector<HTMLElement>('.inopt__note')
-  if (manual) manual.hidden = false
-  if (match) {
-    match.hidden = true
-    match.textContent = ''
-  }
-  if (note) {
-    note.hidden = true
-    note.textContent = ''
-  }
-}
-
-// Show an inline note on a source option (e.g. "no match — enter manually").
-function setSourceNote(root: HTMLElement, source: SourceKind, text: string): void {
-  const note = root.querySelector<HTMLElement>(`.inopt[data-source="${source}"] .inopt__note`)
-  if (!note) return
-  note.textContent = text
-  note.hidden = false
-}
-
-// Search ORCID, OpenAlex and GitHub by name and fold the matches straight into the
-// five-option list: each source's closest match populates its numbered option (as a
-// name, not a raw ID) and ticks it; there is no separate results block.
+// Search ORCID, OpenAlex and GitHub by name and auto-fill each source's closest
+// match straight into its field, ticking that row's include badge. Unmatched or
+// unavailable sources are left blank for manual entry.
 async function doSearch(
   query: string,
   root: HTMLElement,
@@ -779,7 +655,6 @@ async function doSearch(
       result: await searchSource(config.workerUrl, source, q),
     })),
   )
-  status.textContent = ''
 
   const nq = normaliseName(query)
   const qTokens = nq ? nq.split(' ') : []
@@ -789,147 +664,26 @@ async function doSearch(
   for (const { source, result } of settled) {
     if (!result.ok) {
       anyFailure = true
-      setSourceNote(root, source, `Search unavailable — enter your ${SOURCE_LABELS[source]} manually.`)
       continue
     }
     const cands = result.candidates ?? []
-    if (!cands.length) {
-      setSourceNote(root, source, `No ${SOURCE_LABELS[source]} match — enter it manually if you have one.`)
-      continue
-    }
-    anyMatch = true
-    const ranked = cands
+    if (!cands.length) continue
+    const best = cands
       .map((candidate) => ({ candidate, score: rankName(candidate.name, nq, qTokens) }))
-      .sort((a, b) => a.score - b.score)
-      .map((r) => r.candidate)
-    applySourceMatch(root, source, ranked, onChange)
+      .sort((a, b) => a.score - b.score)[0].candidate
+    const field = root.querySelector<HTMLInputElement>(`#in-${source}`)
+    if (field) field.value = best.id
+    resetInoptAdd(root, source)
+    setChecked(root, source, true)
+    anyMatch = true
   }
+  onChange()
 
-  if (!anyMatch) {
-    status.textContent = anyFailure
+  status.textContent = anyMatch
+    ? ''
+    : anyFailure
       ? 'Search sources are unavailable right now — enter IDs or a URL manually below.'
       : 'No matches found — enter IDs or a URL manually below.'
-  }
-}
-
-// Fold a source's search matches into its numbered option: show the chosen
-// candidate (name + affiliation) in place of the raw-ID field, store the id, tick
-// the source, and offer the rest under a "see more options" foldout. Picking
-// another moves it to the top and folds the list back in.
-function applySourceMatch(
-  root: HTMLElement,
-  source: SourceKind,
-  candidates: Candidate[],
-  onChange: () => void,
-): void {
-  const li = root.querySelector<HTMLElement>(`.inopt[data-source="${source}"]`)
-  if (!li) return
-  const input = li.querySelector<HTMLInputElement>(`#in-${source}`)
-  const manual = li.querySelector<HTMLElement>('.inopt__manual')
-  const match = li.querySelector<HTMLElement>('.inopt__match')
-  const note = li.querySelector<HTMLElement>('.inopt__note')
-  if (!input || !manual || !match || !note) return
-  note.hidden = true
-  note.textContent = ''
-  let chosen = candidates[0]
-
-  const chipRow = (candidate: Candidate): HTMLElement => {
-    const row = document.createElement('div')
-    row.className = 'search__result'
-    if (candidate === chosen) row.classList.add('is-selected')
-    const mark = document.createElement('span')
-    mark.className = 'search__pick'
-    mark.setAttribute('aria-hidden', 'true')
-    mark.textContent = candidate === chosen ? '●' : '○'
-    const body = document.createElement('div')
-    body.className = 'search__body'
-    const name = document.createElement('span')
-    name.className = 'search__name'
-    name.textContent = candidate.name
-    body.appendChild(name)
-    if (candidate.affiliation) {
-      const affil = document.createElement('span')
-      affil.className = 'search__affil'
-      affil.textContent = candidate.affiliation
-      body.appendChild(affil)
-    }
-    const inspect = document.createElement('a')
-    inspect.className = 'search__inspect'
-    inspect.href = recordUrl({ source, id: candidate.id })
-    inspect.target = '_blank'
-    inspect.rel = 'noopener'
-    inspect.title = 'Open the public record in a new tab'
-    inspect.innerHTML = 'View record <span aria-hidden="true">↗</span>'
-    inspect.addEventListener('click', (e) => e.stopPropagation())
-    row.append(mark, body, inspect)
-    row.setAttribute('role', 'button')
-    row.tabIndex = 0
-    const pick = (): void => {
-      chosen = candidate
-      input.value = candidate.id
-      setChecked(root, source, true)
-      onChange()
-      render()
-    }
-    row.addEventListener('click', pick)
-    row.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault()
-        pick()
-      }
-    })
-    return row
-  }
-
-  const render = (): void => {
-    match.textContent = ''
-    match.appendChild(chipRow(chosen))
-    const rest = candidates.filter((c) => c !== chosen)
-    if (rest.length) {
-      const more = document.createElement('details')
-      more.className = 'search__more'
-      const summary = document.createElement('summary')
-      summary.className = 'search__more-summary'
-      summary.textContent = `See ${rest.length} more option${rest.length === 1 ? '' : 's'}`
-      more.appendChild(summary)
-      for (const c of rest) more.appendChild(chipRow(c))
-      match.appendChild(more)
-    }
-    const manualBtn = document.createElement('button')
-    manualBtn.type = 'button'
-    manualBtn.className = 'inopt__manual-toggle'
-    manualBtn.textContent = 'Enter a different ID manually'
-    manualBtn.addEventListener('click', () => {
-      resetSourceMatch(root, source)
-      input.value = ''
-      setChecked(root, source, false)
-      resetInoptAdd(root, source)
-      onChange()
-      input.focus()
-    })
-    match.appendChild(manualBtn)
-  }
-
-  input.value = chosen.id
-  setChecked(root, source, true)
-  manual.hidden = true
-  match.hidden = false
-  render()
-  onChange()
-}
-
-// On a fresh ORCID login, pre-fill the ORCID field with the verified iD, tick it,
-// and note it, so a single "Retrieve data" click loads the researcher's own record.
-function loadVerifiedProfile(
-  root: HTMLElement,
-  session: { orcid: string; name: string | null },
-  status: HTMLElement,
-): void {
-  const input = root.querySelector<HTMLInputElement>('#in-orcid')
-  if (input) input.value = session.orcid
-  setChecked(root, 'orcid', true)
-  dirty = true
-  status.textContent = `Loaded your verified ORCID (${session.orcid}) — press Retrieve data.`
 }
 
 // --- retrieval ---
@@ -1024,18 +778,18 @@ function dedupeRecords<T extends { text: string }>(items: T[]): T[] {
 // are collected, so a user can exclude a mis-matched source.
 function collectInputs(root: HTMLElement): Array<{ source: SourceKind; id: string }> {
   const out: Array<{ source: SourceKind; id: string }> = []
-  for (const f of NUMBERED) {
-    if (!root.querySelector<HTMLInputElement>(`#check-${f.source}`)?.checked) continue
-    const v = root.querySelector<HTMLInputElement>(`#in-${f.source}`)?.value.trim()
-    if (v) out.push({ source: f.source, id: v })
-  }
-  if (root.querySelector<HTMLInputElement>('#check-url')?.checked) {
-    // Only URLs the user has successfully "Added" (retrieved) are included.
-    for (const rowEl of Array.from(root.querySelectorAll<HTMLElement>('.url-row[data-added="1"]'))) {
-      const v = rowEl.querySelector<HTMLInputElement>('.url-row__input')?.value.trim()
-      if (!v) continue
+  for (const r of SOURCE_ROWS) {
+    if (!root.querySelector<HTMLInputElement>(`#check-${r.key}`)?.checked) continue
+    const v = root.querySelector<HTMLInputElement>(`#in-${r.key}`)?.value.trim()
+    if (!v) continue
+    // Rows 1–3 force their source; the Website row auto-detects (it may hold any
+    // profile URL). A ticked Website row was only ticked after a successful Add,
+    // so detection succeeds here.
+    if (r.source === 'website') {
       const det = detectSource(v)
       if (det) out.push(det)
+    } else {
+      out.push({ source: r.source, id: v })
     }
   }
   return out

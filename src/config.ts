@@ -17,14 +17,15 @@ export const config: AppConfig = {
   workerUrl: 'https://roast-a-researcher.eelkedevries.workers.dev',
   maxInputChars: 40000,
   defaultIntensity: 3,
-  orcidLoginEnabled: true,
+  orcidLoginEnabled: false,
 }
 
-// The three intensity levels (value sent to the Worker + the button label).
+// The two intensity levels (value sent to the Worker + the pill label). The values
+// stay within the 1–3 range the Worker already understands: "Factual" maps to the
+// gentlest tier, "Roast" to the strongest.
 export const intensityLevels: ReadonlyArray<{ value: number; label: string }> = [
-  { value: 1, label: 'Keep it factual' },
-  { value: 2, label: 'Don’t hold back' },
-  { value: 3, label: 'Show no mercy' },
+  { value: 1, label: 'Factual' },
+  { value: 3, label: 'Roast' },
 ]
 
 // Comedic format presets the user can pick (the `value` is sent to the Worker as
@@ -59,9 +60,8 @@ export const copy = {
   roastButton: 'Roast me',
   outputPlaceholder: 'Your roast will appear here.',
   privacyNotice:
-    'Your text is sent to a language-model provider (via OpenRouter) to ' +
-    'generate the roast. Nothing is stored; the roast is produced per request. ' +
-    'Read the provider’s data policy before pasting anything sensitive.',
+    'Your text goes to a language model (via OpenRouter) to generate the roast — ' +
+    'nothing is stored. Check',
   providerPolicyUrl: 'https://openrouter.ai/privacy',
   providerPolicyLabel: 'OpenRouter’s data policy',
   // ORCID login (035). Session-only verification: logging in confirms your ORCID

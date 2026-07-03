@@ -11,20 +11,22 @@ This file records what *is* (current reality). The binding design canon is `docs
 - **Build/dev scaffold** — Vite + TypeScript static site, building to `dist/`.
 - **Front-end shell** — `src/ui.ts` renders a guided flow in **three numbered steps —
   01 Add your data, 02 Confirm your data, 03 Roast your data** (steps 02/03 revealed
-  after a retrieval) (`054`). Step 01 has a **search-by-name hero** (ORCID/OpenAlex/
-  GitHub) whose matches fold **into a single numbered list of five input options**
-  (1 ORCID, 2 OpenAlex, 3 GitHub, 4 upload documents, 5 URL link) — there is no
-  separate results block. Options 1–3 and 5 each have an **Add** button (green
-  "Added" / red "Failed") that retrieves the manually-entered id/URL to confirm it;
-  the include-checkbox ticks only on a successful Add (or a search-match pick). In
-  the overview, papers and Personalia "Education" are ordered chronologically by
-  year; the GitHub foldout is titled "repositories" and lists names only. Each
-  source option shows its closest match as the researcher's **name** (not the raw ID),
-  with a "see more options" foldout and an "enter a different ID manually" toggle
-  inline; picking an alternative promotes it and folds the rest back. **Each option has
-  a leading include-checkbox** (green tick) that a match or a typed value ticks
-  automatically; only ticked options are retrieved, so a mis-match can be excluded.
-  Option 4 is **upload-only** (no paste box). A discrete **Retrieve data** button then
+  after a retrieval) (`054`, `055`). Above the flow sits the **eelkedevries.com
+  masthead + sticky pipe-nav** (black-hole-eye banner, name/role, social icons,
+  cross-site links) and a single **gold Spectral** page title, so the app reads as a
+  native page of the site (`055`). Step 01 has a **search-by-name hero** (ORCID/
+  OpenAlex/GitHub) above **five uniform single-line input rows** — 1 ORCID,
+  2 OpenAlex, 3 GitHub, 4 Documents, 5 Website. A search **auto-fills** each source's
+  closest match straight into its field (best match only; no picker or separate
+  results block). Rows 1–3 and 5 each have an **Add** button (green "Added" / red
+  "Failed") that retrieves the entered id/URL to confirm it. Each row's **number
+  badge is its include indicator** (a hidden checkbox behind the badge): a search
+  match or a successful Add fills it gold; toggling it excludes that source from
+  retrieval — so a mis-match can be dropped. Row 4 (Documents) is **upload-only** (a
+  dashed drop box + Browse, no paste); row 5 (Website) is a single URL field that
+  auto-detects its source. In the overview, papers and Personalia "Education" are
+  ordered chronologically by year; the GitHub foldout is titled "repositories" and
+  lists names only. A discrete **Retrieve data** button then
   fetches everything (de-duplicating an OpenAlex record already covered by ORCID) and
   shows a **compact overview** — documents + links as counts, and **papers and projects
   as fold-out checklists** where each paper/GitHub repo is a ticked entry the user can
@@ -62,12 +64,13 @@ This file records what *is* (current reality). The binding design canon is `docs
   with how much genuinely funny, on-target material there is (a few sentences up to
   ~600 words), never padded — so `MAX_OUTPUT_TOKENS` is 1500.
   Also: **"Try a sample"** (zero-cost canned demo, `src/demo.ts`, no model call),
-  **"Download data"** (`.md` export) beside **Roast me**, and a **3-level intensity
-  control** (Keep it factual / Don’t hold back / Show no mercy; default the
-  strongest) shown both before and, after a roast, in a post-roast panel (change
-  intensity + re-roast, and "Inspect papers used"). A **Format** selector (Straight
-  roast + 6 comedic presets) sits in the settings. Warm-palette CSS + Plus Jakarta
-  Sans / Space Mono in `src/style.css`; fonts via `@import`. The roast POSTs
+  **"Download data"** (`.md` export) beside **Roast me**, and a **two-option intensity
+  pill** (Factual / Roast; default Roast) shown both before and, after a roast, in a
+  post-roast panel (change intensity + re-roast, and "Inspect papers used"). A
+  **Format** selector (Straight roast + 6 comedic presets) sits in the settings.
+  Cosmic-theme CSS matching eelkedevries.com (near-black canvas, gold + iris accents,
+  fixed starfield; Spectral / Lexend / JetBrains Mono; fonts via `<link>`) in
+  `src/style.css`. The roast POSTs
   `{ profile, intensity, format, regenerate, exclude }` to the Worker (the model is
   fixed server-side in `roast.md`) and streams SSE, or shows an in-character error.
 - **Worker proxy** (`worker/`) — Cloudflare Worker proxying a **streaming** roast
@@ -142,9 +145,11 @@ This file records what *is* (current reality). The binding design canon is `docs
   fragment; `/auth/me` validates it. The front end (`src/auth.ts`) stores the token
   in `localStorage` and sends it as a `Bearer` header (no cookie — the app and
   Worker origins differ, so a session cookie would be a blocked third-party cookie).
-  A header control shows login/logout state; when the logged-in iD matches a
-  selected ORCID link row, the personalia Name row shows a cosmetic "✓ ORCID-verified"
-  badge. New non-secret vars (`ORCID_OAUTH_BASE` defaulting to **sandbox**,
+  The header login/logout control was **removed** in the site-theme refresh (`055`,
+  `config.orcidLoginEnabled = false`); the OAuth backend and the verified-badge logic
+  (`maybeAddVerifiedBadge`) remain dormant, so a matching logged-in iD would still show
+  the cosmetic "✓ ORCID-verified" badge on the personalia Name row if login is re-enabled.
+  New non-secret vars (`ORCID_OAUTH_BASE` defaulting to **sandbox**,
   `ORCID_CLIENT_ID`, `ORCID_REDIRECT_URI`, `APP_URL`) + two secrets
   (`ORCID_CLIENT_SECRET`, `SESSION_SECRET`); login is disabled when unset.
   Built + type-checked (`npm run check`, `wrangler deploy --dry-run`). **Human
