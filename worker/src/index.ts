@@ -621,8 +621,10 @@ const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 const BROWSER_FETCH_HEADERS: Record<string, string> = {
   'User-Agent': BROWSER_UA,
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  Accept:
+    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
   'Accept-Language': 'en-GB,en;q=0.9',
+  'Upgrade-Insecure-Requests': '1',
 }
 
 // fetch() with a connect/headers deadline. The timer is cleared once the response
@@ -771,6 +773,10 @@ async function retrieveWebsite(
   } catch {
     return jsonError('source_error', 'Could not read that website.', 502, allowOrigin)
   }
+  // The seed page's <title>: a bot-protection interstitial ("Just a moment…",
+  // "Access denied", "Attention Required!") has a telling title even when its body
+  // strips to nothing, so it makes the "no readable text" failure diagnosable.
+  const seedTitle = seedHtml ? htmlToText(seedHtml).title : ''
 
   // Crawl the rest of the site (same host): start from the given page and the site
   // root, following internal links (CV, media, etc.). Bounded by page count, a
@@ -824,9 +830,12 @@ async function retrieveWebsite(
   }
 
   if (!pages.length) {
+    const detail = seedTitle
+      ? ` The site returned a page titled “${seedTitle}”, which usually means it is behind bot protection or needs JavaScript.`
+      : ''
     return jsonError(
       'not_found',
-      'No readable text found on that site (it may be image-only or rendered by JavaScript). Paste the text instead.',
+      `No readable text found on that site (image-only, JavaScript-rendered, or bot-protected).${detail} Upload your CV or paste the text instead.`,
       404,
       allowOrigin,
     )
